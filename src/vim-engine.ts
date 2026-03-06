@@ -97,6 +97,8 @@ export class VimEngine {
       case 'k': this.moveCursor('up'); break;
       case "ArrowRight":
       case 'l': this.moveCursor('right'); break;
+      case 'Home': this.cursor.x = 0; break;
+      case 'End': this.cursor.x = this.buffer[this.cursor.y]?.length || 0; break;
       case 'x': // delete character under cursor
         const line = this.buffer[this.cursor.y];
         if (line && line.length > 0) {
@@ -116,6 +118,8 @@ export class VimEngine {
     if (key === 'ArrowDown') { this.moveCursor('down'); return; }
     if (key === 'ArrowUp') { this.moveCursor('up'); return; }
     if (key === 'ArrowRight') { this.moveCursor('right'); return; }
+    if (key === 'Home') { this.cursor.x = 0; return; }
+    if (key === 'End') { this.cursor.x = this.buffer[this.cursor.y]?.length || 0; return; }
 
     if (key === 'Backspace') {
       if (this.cursor.x > 0) {
