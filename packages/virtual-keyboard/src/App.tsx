@@ -129,7 +129,7 @@ const VirtualKeyboard: Component<VirtualKeyboardProps> = (props) => {
 
     return (
       <button 
-        onClick={() => handleKeyPress(key)}
+        onPointerDown={(e) => { e.preventDefault(); handleKeyPress(key); }}
         style={{
           background: isActive ? '#444' : '#000',
           color: '#fff',
@@ -141,7 +141,7 @@ const VirtualKeyboard: Component<VirtualKeyboardProps> = (props) => {
           'font-size': '0.9rem',
           'font-weight': '500',
           cursor: 'pointer',
-          height: '42px',
+          height: '34px',
           'user-select': 'none',
           'box-sizing': 'border-box',
           padding: '0',
@@ -211,7 +211,7 @@ const VirtualKeyboard: Component<VirtualKeyboardProps> = (props) => {
     }
 
     return (
-      <button style={style} onClick={() => handleKeyPress(key)}>
+      <button style={style} onPointerDown={(e) => { e.preventDefault(); handleKeyPress(key); }}>
         {content}
       </button>
     );
@@ -243,7 +243,7 @@ const VirtualKeyboard: Component<VirtualKeyboardProps> = (props) => {
       }}>
         <For each={extraRows}>
           {(row) => (
-            <div style={{ display: 'flex', gap: '1px', height: '42px', 'box-sizing': 'border-box', width: '100%' }}>
+            <div style={{ display: 'flex', gap: '1px', height: '34px', 'box-sizing': 'border-sizing', width: '100%' }}>
               <For each={row}>
                 {(key) => renderExtraKey(key)}
               </For>

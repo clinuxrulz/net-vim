@@ -32,21 +32,7 @@ export const ExtraKeys: Component<ExtraKeysProps> = (props) => {
       <For each={keys}>
         {(k) => (
           <button
-            onClick={() => props.onKeyPress(k.key)}
-            style={{
-              padding: '8px 10px',
-              background: '#333',
-              color: '#eee',
-              border: '1px solid #555',
-              'border-radius': '4px',
-              'font-family': 'monospace',
-              'font-size': '12px',
-              'font-weight': 'bold',
-              cursor: 'pointer',
-              'min-width': '40px',
-              'user-select': 'none'
-            }}
-            onMouseDown={(e) => e.preventDefault()} // Prevent focus loss from input
+            onPointerDown={(e) => { e.preventDefault(); props.onKeyPress(k.key); }}
           >
             {k.label}
           </button>
