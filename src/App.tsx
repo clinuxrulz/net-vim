@@ -1,11 +1,29 @@
 import { createSignal, onMount, Show, createEffect } from 'solid-js';
 import { render } from './solid-universal-tui';
 import { WebGLRenderer } from './WebGLRenderer';
-import { VimEngine, type VimPlugin } from './vim-engine';
+import { VimEngine } from './vim-engine';
 import { VimUI } from './VimUI';
+import { getConfigFile, ensureConfigDir, writeConfigFile } from './opfs-util';
 import { VirtualKeyboard } from 'virtual-keyboard';
 // @ts-ignore
 import init, { Engine } from '../crates/tui-engine/pkg/tui_engine';
+
+const CONFIG_PATH = '.config/web-vim/init.ts';
+
+const DEFAULT_INIT = `
+export default {
+  metadata: {
+    name: "user-init",
+    description: "User startup configuration"
+  },
+  setup: (api) => {
+    api.log("Custom init.ts loaded from OPFS!");
+    
+    // You can load other plugins here too:
+    // api.loadPluginFromSource("my-plugin", "...ts source...");
+  }
+};
+`;
 
 const PROP_TO_TYPE_MAP = new Map([
   ['x', "number"],
@@ -21,18 +39,33 @@ const TYPE_PARSER_MAP = new Map([
 // Character size for grid calculation - now reactive signals
 const [charSize, setCharSize] = createSignal({ width: 10, height: 20 });
 
-// Simple TypeScript Plugin Example
-const examplePlugin: VimPlugin = {
-  name: 'HelloWorld',
-  init: (api) => {
-    api.registerCommand('hello', (args) => {
-      console.log('Hello from TypeScript Plugin!', args);
-      const buffer = api.getBuffer();
-      buffer.push(`Plugin says hello to ${args.join(' ') || 'world'}!`);
-      api.setBuffer(buffer);
+// Sample TypeScript Plugin Source
+const helloPlugin = `
+export default {
+  metadata: {
+    name: "hello-plugin",
+    description: "A simple plugin that greets you and tracks mode changes."
+  },
+  setup: (api) => {
+    api.log("Hello from the Babel-transpiled plugin!");
+    
+    // Register a custom command
+    api.registerCommand("hello", (args) => {
+      api.log("Command :hello executed with args:", args);
+      // In a real TUI we'd probably show a message in the UI instead of alert
+      console.log("HELLO FROM PLUGIN!", args);
+    });
+
+    // Listen for mode changes
+    api.on("ModeChanged", (data) => {
+      api.log("Mode changed from " + data.from + " to " + data.to);
+      const count = api.storage.get("modeChanges") || 0;
+      api.storage.set("modeChanges", count + 1);
+      api.log("Total mode changes: " + (count + 1));
     });
   }
 };
+`;
 
 export default function App() {
   const [gridDim, setGridDim] = createSignal({ width: 80, height: 24 });
@@ -51,6 +84,10 @@ export default function App() {
     cursor: { x: 0, y: 0 },
     mode: 'Normal' as any,
     commandText: '',
+    currentFilePath: null as string | null,
+    isExplorer: false,
+    explorerPath: '',
+    plugins: [] as any[],
   });
 
   const [viewportHeight, setViewportHeight] = createSignal(window.innerHeight);
@@ -120,13 +157,37 @@ export default function App() {
         updateViewport();
       }
       
-      // Initialize Plugin
-      examplePlugin.init(vim.getAPI());
+      // Initialize Plugins
+      
+      // 1. Check OPFS for init.ts
+      try {
+        let initSource = await getConfigFile(CONFIG_PATH);
+        if (initSource) {
+           await vim.loadPluginFromSource("init.ts", initSource);
+        } else {
+           // Provide a way for the user to create it
+           console.log("No init.ts found at", CONFIG_PATH);
+           // Optional: create a dummy one for easy editing?
+           // await writeConfigFile(CONFIG_PATH, DEFAULT_INIT);
+        }
+      } catch (e) {
+        console.error("Error loading init.ts from OPFS:", e);
+      }
+      
+      // 2. Sample (Optional)
+      // vim.loadPluginFromSource("hello-plugin", helloPlugin);
       
       // Register CRT toggle command
       vim.getAPI().registerCommand('crt', () => {
         setCrtEnabled(!crtEnabled());
       });
+
+      // Command to create a default init.ts if missing
+      vim.getAPI().registerCommand('create-init', async () => {
+        await writeConfigFile(CONFIG_PATH, DEFAULT_INIT);
+        console.log("Created default init.ts in OPFS at", CONFIG_PATH);
+      });
+
 
       setVimState(vim.getState());
 
@@ -253,6 +314,10 @@ export default function App() {
           cursor={vimState().cursor} 
           mode={vimState().mode} 
           commandText={vimState().commandText}
+          currentFilePath={vimState().currentFilePath}
+          isExplorer={vimState().isExplorer}
+          explorerPath={vimState().explorerPath}
+          plugins={vimState().plugins}
           width={gridDim().width}
           height={gridDim().height}
         />

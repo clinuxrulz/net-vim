@@ -1,5 +1,5 @@
 import { For, Show, type Component } from 'solid-js';
-import type { VimMode } from './vim-engine';
+import type { VimMode } from './types';
 
 interface VimUIProps {
   buffer: string[];
@@ -8,11 +8,20 @@ interface VimUIProps {
   commandText: string;
   width: number;
   height: number;
+  currentFilePath?: string | null;
+  isExplorer?: boolean;
+  explorerPath?: string;
+  plugins?: Array<{ name: string }>;
 }
 
 export const VimUI: Component<VimUIProps> = (props) => {
   const statusLineY = () => props.height - 2;
   const commandLineY = () => props.height - 1;
+
+  const fileName = () => {
+    if (props.isExplorer) return `Explorer: ${props.explorerPath || '/'}`;
+    return props.currentFilePath || '[No Name]';
+  };
 
   return (
     <box x={0} y={0} width={props.width} height={props.height} border={false}>
@@ -31,7 +40,7 @@ export const VimUI: Component<VimUIProps> = (props) => {
       
       {/* Status Line */}
       <box x={0} y={statusLineY()} width={props.width} height={1} border={false}>
-         <text x={0} y={0} content={`-- ${props.mode.toUpperCase()} --   ${props.cursor.y + 1},${props.cursor.x + 1}`} />
+         <text x={0} y={0} content={`-- ${props.mode.toUpperCase()} --   ${fileName()}   ${props.cursor.y + 1},${props.cursor.x + 1}`} />
       </box>
 
       {/* Command Line / Message Area */}
