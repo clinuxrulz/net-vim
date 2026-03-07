@@ -154,7 +154,7 @@ export default function App() {
 
       // Keyboard listener
       const handleKeyDown = (e: KeyboardEvent) => {
-        const keysToPrevent = ['j', 'k', 'h', 'l', 'i', 'a', 'o', ':', '/', 'Escape', 'Backspace', 'Enter', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab'];
+        const keysToPrevent = ['j', 'k', 'h', 'l', 'i', 'a', 'o', ':', '/', 'Escape', 'Backspace', 'Enter', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'Home', 'End', 'PageUp', 'PageDown'];
         if (e.key.length === 1 || keysToPrevent.includes(e.key)) {
           if (keysToPrevent.includes(e.key) || e.ctrlKey) {
             e.preventDefault();
