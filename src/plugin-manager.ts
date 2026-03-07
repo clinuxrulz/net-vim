@@ -36,8 +36,11 @@ import { getConfigFile, writeConfigFile } from './opfs-util';
 export class PluginManager {
   private plugins: Map<string, WebVimPlugin> = new Map();
   private pluginStates: Map<string, Map<string, any>> = new Map();
+  private getBaseAPI: () => VimAPI;
 
-  constructor(private getBaseAPI: () => VimAPI) {}
+  constructor(getBaseAPI: () => VimAPI) {
+    this.getBaseAPI = getBaseAPI;
+  }
 
   /**
    * Loads a TypeScript plugin from a raw string
