@@ -1,5 +1,5 @@
 import { PluginManager } from './plugin-manager';
-import type { VimMode, VimEvent, VimAPI, GutterOptions, CompletionItem, FileSystem } from './types';
+import type { VimMode, VimEvent, VimAPI, GutterOptions, CompletionItem, FileSystem, ContextMenuItem } from './types';
 import { opfsFS, PRELUDE_BASE } from './opfs-util';
 
 export class VimEngine {
@@ -17,6 +17,7 @@ export class VimEngine {
   private isReadOnly = false;
   private gutters: GutterOptions[] = [];
   private lineRenderers: any[] = [];
+  private contextMenuItems: ContextMenuItem[] = [];
   private commands: Record<string, (args: string[]) => void> = {};
   private onUpdate: () => void;
   private eventListeners: Map<string, Array<(...args: any[]) => void>> = new Map();
@@ -176,6 +177,40 @@ export class VimEngine {
         this.hoverText = null;
         this.onUpdate();
       },
+      registerContextMenuItem: (item) => {
+        this.contextMenuItems.push(item);
+        this.contextMenuItems.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+        this.onUpdate();
+      },
+      insertText: (text) => {
+        if (this.isReadOnly && this.mode !== 'Command') return;
+        
+        if (this.mode === 'Command') {
+          this.commandText += text.replace(/\r?\n/g, ''); // Don't allow newlines in command line
+          this.onUpdate();
+          return;
+        }
+
+        const lines = text.split(/\r?\n/);
+        const currentLine = this.buffer[this.cursor.y] || '';
+        const before = currentLine.slice(0, this.cursor.x);
+        const after = currentLine.slice(this.cursor.x);
+
+        if (lines.length === 1) {
+          this.buffer[this.cursor.y] = before + lines[0] + after;
+          this.setCursor(this.cursor.x + lines[0].length, this.cursor.y);
+        } else {
+          this.buffer[this.cursor.y] = before + lines[0];
+          const middle = lines.slice(1, -1);
+          const last = lines[lines.length - 1] + after;
+          
+          const newLines = [this.buffer[this.cursor.y], ...middle, last];
+          this.buffer.splice(this.cursor.y, 1, ...newLines);
+          this.setCursor(lines[lines.length - 1].length, this.cursor.y + lines.length - 1);
+        }
+        this.trigger('TextChanged');
+        this.onUpdate();
+      },
       setFS: (fs) => { this.fs = fs; },
       getFS: () => this.fs,
       resetFS: () => { this.fs = opfsFS; },
@@ -250,6 +285,7 @@ export class VimEngine {
       plugins: this.pluginManager.getLoadedPlugins(),
       gutters: this.gutters,
       lineRenderers: this.lineRenderers,
+      contextMenuItems: this.contextMenuItems,
       completionItems: this.completionItems,
       selectedCompletionIndex: this.selectedCompletionIndex,
       hoverText: this.hoverText,

@@ -28,6 +28,30 @@ export default {
   }
 };
 `,
+  'context-menu.tsx': `
+export default {
+  metadata: {
+    name: "context-menu",
+    description: "Core context menu functionality"
+  },
+  setup: (api: any) => {
+    api.registerContextMenuItem({
+      label: "Paste",
+      priority: 100,
+      action: async () => {
+        try {
+          const text = await navigator.clipboard.readText();
+          if (text) {
+            api.insertText(text);
+          }
+        } catch (err) {
+          api.log("Paste failed: " + err.message);
+        }
+      }
+    });
+  }
+};
+`,
   'hello.tsx': `
 export default {
   metadata: {

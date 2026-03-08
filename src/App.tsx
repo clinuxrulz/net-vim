@@ -3,7 +3,7 @@ import { render } from './solid-universal-tui';
 import { WebGLRenderer } from './WebGLRenderer';
 import { VimEngine } from './vim-engine';
 import { VimUI } from './VimUI';
-import { getConfigFile, ensureConfigDir, writeConfigFile } from './opfs-util';
+import { getConfigFile, ensureConfigDir, writeConfigFile, PRELUDE_BASE } from './opfs-util';
 import { VirtualKeyboard } from 'virtual-keyboard';
 // @ts-ignore
 import init, { Engine } from '../crates/tui-engine/pkg/tui_engine';
@@ -25,6 +25,11 @@ export default {
       await api.loadPluginFromSource("line-numbers", lineNumbers);
     }
     
+    const contextMenu = await api.configFs.readFile(".config/web-vim/prelude/context-menu.tsx");
+    if (contextMenu) {
+      await api.loadPluginFromSource("context-menu", contextMenu);
+    }
+
     const tsLsp = await api.configFs.readFile(".config/web-vim/prelude/ts-lsp.tsx");
     if (tsLsp) {
       await api.loadPluginFromSource("ts-lsp", tsLsp);
@@ -85,6 +90,7 @@ export default function App() {
   const [isMobile, setIsMobile] = createSignal(false);
   const [showKeyboard, setShowKeyboard] = createSignal(false);
   const [crtEnabled, setCrtEnabled] = createSignal(false);
+  const [contextMenu, setContextMenu] = createSignal<{ x: number, y: number, items: any[] } | null>(null);
   
   const [visualCursor, setVisualCursor] = createSignal({ x: 0, y: 0 });
 
@@ -227,6 +233,12 @@ export default {
       
       // 1. Check OPFS for init.ts
       try {
+        // Load default context menu first
+        const contextMenuSource = await getConfigFile(PRELUDE_BASE + '/context-menu.tsx');
+        if (contextMenuSource) {
+           await vim.loadPluginFromSource("context-menu", contextMenuSource);
+        }
+
         let initSource = await getConfigFile(CONFIG_PATH);
         if (initSource) {
            await vim.loadPluginFromSource("init.ts", initSource);
@@ -544,7 +556,12 @@ export default {
   });
 
   const handlePointerDown = (e: PointerEvent) => {
-    e.preventDefault();
+    // Close context menu if open
+    if (contextMenu()) {
+      setContextMenu(null);
+      return;
+    }
+
     if (!containerRef || !vimInstance) return;
     
     const rect = containerRef.getBoundingClientRect();
@@ -573,6 +590,18 @@ export default {
     }
   };
 
+  const handleContextMenu = (e: MouseEvent) => {
+    e.preventDefault();
+    const state = vimState();
+    if (state.contextMenuItems && state.contextMenuItems.length > 0) {
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        items: state.contextMenuItems
+      });
+    }
+  };
+
   return (
     <div 
       style={{ 
@@ -589,6 +618,7 @@ export default {
         overflow: 'hidden'
       }}
       onPointerDown={handlePointerDown}
+      onContextMenu={handleContextMenu}
     >
       <Show when={!isMobile()}>
         <div
@@ -660,6 +690,46 @@ export default {
           </Show>
         </Show>
       </div>
+
+      {/* Context Menu Overlay */}
+      <Show when={contextMenu()}>
+        <div 
+          style={{
+            position: 'fixed',
+            top: `${contextMenu()?.y}px`,
+            left: `${contextMenu()?.x}px`,
+            background: '#252526',
+            border: '1px solid #454545',
+            'box-shadow': '0 2px 10px rgba(0,0,0,0.5)',
+            'z-index': 1000,
+            padding: '4px 0',
+            'min-width': '150px'
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <For each={contextMenu()?.items}>
+            {(item) => (
+              <div 
+                style={{
+                  padding: '6px 12px',
+                  cursor: 'pointer',
+                  color: '#cccccc',
+                  'font-size': '14px',
+                  'font-family': 'sans-serif'
+                }}
+                onMouseOver={(e) => (e.currentTarget.style.background = '#094771')}
+                onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}
+                onClick={() => {
+                  item.action();
+                  setContextMenu(null);
+                }}
+              >
+                {item.label}
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
     </div>
   );
 }

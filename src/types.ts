@@ -20,6 +20,12 @@ export interface CompletionItem {
   documentation?: string;
 }
 
+export interface ContextMenuItem {
+  label: string;
+  action: () => void;
+  priority?: number;
+}
+
 export interface GutterOptions {
   name: string;
   width: number;
@@ -73,6 +79,8 @@ export interface VimAPI {
   hideCompletions: () => void;
   showHover: (text: string, x: number, y: number) => void;
   hideHover: () => void;
+  registerContextMenuItem: (item: ContextMenuItem) => void;
+  insertText: (text: string) => void;
 
   // File System
   setFS: (fs: FileSystem) => void;
