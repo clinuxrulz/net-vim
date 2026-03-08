@@ -87,6 +87,7 @@ export default function App() {
   const [vimState, setVimState] = createSignal({
     buffer: [] as string[],
     cursor: { x: 0, y: 0 },
+    topLine: 0,
     mode: 'Normal' as any,
     commandText: '',
     currentFilePath: null as string | null,
@@ -149,6 +150,7 @@ export default {
         rustEngine = new Engine(width, height);
       }
       if (vimInstance) {
+        vimInstance.setViewportHeight(height - 2);
         setVimState(vimInstance.getState());
       }
     }
@@ -176,6 +178,7 @@ export default {
 
       // Initial sizing
       updateDimensions();
+      vim.setViewportHeight(gridDim().height - 2);
 
       // Visual Viewport tracking for mobile keyboard
       const updateViewport = () => {
@@ -269,7 +272,20 @@ export default {
         }
       };
 
+      const handleWheel = (e: WheelEvent) => {
+        if (vimInstance) {
+          // Normal mode scrolling with wheel
+          if (e.deltaY > 0) {
+            processKey('e', true); // Scroll down (Ctrl+e)
+          } else if (e.deltaY < 0) {
+            processKey('y', true); // Scroll up (Ctrl+y)
+          }
+          e.preventDefault();
+        }
+      };
+
       window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('wheel', handleWheel, { passive: false });
       window.addEventListener('resize', updateDimensions);
 
       // Handle Android back button to close keyboard
@@ -341,6 +357,7 @@ export default {
         <VimUI 
           buffer={() => vimState().buffer} 
           cursor={() => vimState().cursor} 
+          topLine={() => vimState().topLine}
           mode={() => vimState().mode} 
           commandText={() => vimState().commandText}
           currentFilePath={() => vimState().currentFilePath}
@@ -447,6 +464,7 @@ export default {
 
       return () => {
         window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('wheel', handleWheel);
         window.removeEventListener('resize', updateDimensions);
         window.removeEventListener('popstate', handlePopState);
         window.removeEventListener('touchstart', handleTouchStart);
@@ -481,7 +499,7 @@ export default {
       
       // Only jump if clicking in the buffer area (above status and command lines)
       if (row < grid.height - 2) {
-        vimInstance.setCursor(col, row);
+        vimInstance.setCursor(col, row + vimState().topLine);
       }
     }
 

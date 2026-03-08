@@ -5,6 +5,8 @@ import { getConfigFile, writeConfigFile, listDirectory, isDirectory, PRELUDE_BAS
 export class VimEngine {
   private buffer: string[] = ['Welcome to Web-Vim!', 'Press i to insert text', 'Press Esc to return to Normal mode', 'Type :q to quit'];
   private cursor = { x: 0, y: 0 };
+  private topLine = 0;
+  private viewportHeight = 22; // Default, will be updated by UI
   private mode: VimMode = 'Normal';
   private commandText = '';
   private currentFilePath: string | null = null;
@@ -136,6 +138,20 @@ export class VimEngine {
     };
   }
 
+  public setViewportHeight(height: number) {
+    this.viewportHeight = height;
+    this.scrollCursorIntoView();
+    this.onUpdate();
+  }
+
+  private scrollCursorIntoView() {
+    if (this.cursor.y < this.topLine) {
+      this.topLine = this.cursor.y;
+    } else if (this.cursor.y >= this.topLine + this.viewportHeight) {
+      this.topLine = this.cursor.y - this.viewportHeight + 1;
+    }
+  }
+
   private trigger(event: VimEvent, ...args: any[]) {
     this.eventListeners.get(event)?.forEach(cb => cb(...args));
   }
@@ -148,6 +164,7 @@ export class VimEngine {
     this.cursor.y = Math.max(0, Math.min(this.buffer.length - 1, y));
     const lineLen = this.buffer[this.cursor.y]?.length || 0;
     this.cursor.x = Math.max(0, Math.min(lineLen, x));
+    this.scrollCursorIntoView();
     this.trigger('CursorMoved', this.cursor);
     this.onUpdate();
   }
@@ -156,6 +173,8 @@ export class VimEngine {
     return {
       buffer: this.buffer,
       cursor: this.cursor,
+      topLine: this.topLine,
+      viewportHeight: this.viewportHeight,
       mode: this.mode,
       commandText: this.commandText,
       currentFilePath: this.currentFilePath,
@@ -232,9 +251,40 @@ export class VimEngine {
     if (this.cursor.x > currentLineLen) {
       this.cursor.x = Math.max(0, currentLineLen);
     }
+    this.scrollCursorIntoView();
   }
 
-  private handleNormalMode(key: string, _ctrl: boolean) {
+  private handleNormalMode(key: string, ctrl: boolean) {
+    if (ctrl) {
+      switch (key) {
+        case 'd': // Scroll down half page
+          const halfPage = Math.floor(this.viewportHeight / 2);
+          this.setCursor(this.cursor.x, this.cursor.y + halfPage);
+          break;
+        case 'u': // Scroll up half page
+          const upHalfPage = Math.floor(this.viewportHeight / 2);
+          this.setCursor(this.cursor.x, this.cursor.y - upHalfPage);
+          break;
+        case 'e': // Scroll down 1 line (cursor stays on line if possible)
+          if (this.topLine < this.buffer.length - 1) {
+            this.topLine++;
+            if (this.cursor.y < this.topLine) {
+              this.setCursor(this.cursor.x, this.topLine);
+            }
+          }
+          break;
+        case 'y': // Scroll up 1 line
+          if (this.topLine > 0) {
+            this.topLine--;
+            if (this.cursor.y >= this.topLine + this.viewportHeight) {
+              this.setCursor(this.cursor.x, this.topLine + this.viewportHeight - 1);
+            }
+          }
+          break;
+      }
+      return;
+    }
+
     switch (key) {
       case 'i': this.mode = 'Insert'; break;
       case ':': this.mode = 'Command'; this.commandText = ''; break;
@@ -248,8 +298,8 @@ export class VimEngine {
       case 'l': this.moveCursor('right'); break;
       case 'Home': this.cursor.x = 0; break;
       case 'End': this.cursor.x = this.buffer[this.cursor.y]?.length || 0; break;
-      case 'PageUp': this.cursor.y = Math.max(0, this.cursor.y - 10); break;
-      case 'PageDown': this.cursor.y = Math.min(this.buffer.length - 1, this.cursor.y + 10); break;
+      case 'PageUp': this.setCursor(this.cursor.x, this.cursor.y - this.viewportHeight); break;
+      case 'PageDown': this.setCursor(this.cursor.x, this.cursor.y + this.viewportHeight); break;
       case 'x': // delete character under cursor
         const line = this.buffer[this.cursor.y];
         if (line && line.length > 0) {
@@ -271,8 +321,8 @@ export class VimEngine {
     if (key === 'ArrowRight') { this.moveCursor('right'); return; }
     if (key === 'Home') { this.cursor.x = 0; return; }
     if (key === 'End') { this.cursor.x = this.buffer[this.cursor.y]?.length || 0; return; }
-    if (key === 'PageUp') { this.cursor.y = Math.max(0, this.cursor.y - 10); return; }
-    if (key === 'PageDown') { this.cursor.y = Math.min(this.buffer.length - 1, this.cursor.y + 10); return; }
+    if (key === 'PageUp') { this.setCursor(this.cursor.x, this.cursor.y - this.viewportHeight); return; }
+    if (key === 'PageDown') { this.setCursor(this.cursor.x, this.cursor.y + this.viewportHeight); return; }
 
     if (key === 'Backspace') {
       if (this.cursor.x > 0) {

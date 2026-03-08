@@ -5,6 +5,7 @@ import { h } from './solid-universal-tui';
 interface VimUIProps {
   buffer: string[] | (() => string[]);
   cursor: { x: number; y: number } | (() => { x: number; y: number });
+  topLine?: number | (() => number);
   mode: VimMode | (() => VimMode);
   commandText: string | (() => string);
   width: number | (() => number);
@@ -23,6 +24,7 @@ export const VimUI: Component<VimUIProps> = (props) => {
 
   const buffer = () => getProp(props.buffer) || [];
   const cursor = () => getProp(props.cursor) || { x: 0, y: 0 };
+  const topLine = () => getProp(props.topLine) || 0;
   const mode = () => getProp(props.mode) || 'Normal';
   const commandText = () => getProp(props.commandText) || '';
   const width = () => getProp(props.width) || 80;
@@ -35,13 +37,14 @@ export const VimUI: Component<VimUIProps> = (props) => {
 
   const statusLineY = () => height() - 2;
   const commandLineY = () => height() - 1;
+  const viewportHeight = () => height() - 2;
 
   const totalGutterWidth = () => gutters().reduce((acc, g) => acc + g.width, 0);
 
   createEffect(() => {
     if (props.onCursorChange) {
       const visualX = cursor().x + totalGutterWidth();
-      const visualY = cursor().y;
+      const visualY = cursor().y - topLine();
       props.onCursorChange({ x: visualX, y: visualY });
     }
   });
@@ -51,17 +54,20 @@ export const VimUI: Component<VimUIProps> = (props) => {
     return (currentFilePath() || '[No Name]') + (isReadOnly() ? ' [RO]' : '');
   };
 
+  const visibleLines = () => buffer().slice(topLine(), topLine() + viewportHeight());
+
   return h('box', { x: 0, y: 0, width: width, height: height, border: false }, [
     /* Gutters & Buffer View */
-    h(For, { each: buffer }, (line: string, i: () => number) => {
+    h(For, { each: visibleLines }, (line: string, i: () => number) => {
+      const absoluteLineIndex = () => topLine() + i();
       return h('box', { x: 0, y: i, width: width, height: 1 }, [
         h(For, { each: gutters }, (gutter: GutterOptions, index: () => number) => {
           const x = () => gutters().slice(0, index()).reduce((acc, g) => acc + g.width, 0);
           return h('box', { x: x, y: 0, width: () => gutter.width, height: 1 }, [
             gutter.render({ 
-              lineIndex: i, 
+              lineIndex: absoluteLineIndex, 
               lineContent: line, 
-              isCursorLine: () => cursor().y === i() 
+              isCursorLine: () => cursor().y === absoluteLineIndex() 
             })
           ]);
         }),
