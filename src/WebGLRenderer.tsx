@@ -210,6 +210,24 @@ export const WebGLRenderer = (props: WebGLRendererProps & { canvasRef?: (el: HTM
     return /^[ -~]$/.test(c);
   }
 
+  const BOX_CHARS: Record<number, string> = {
+    1: '│',
+    2: '─',
+    3: '┌',
+    4: '┐',
+    5: '└',
+    6: '┘',
+    7: '├',
+    8: '┤',
+    9: '┬',
+    10: '┴',
+    11: '┼',
+    12: '╭',
+    13: '╮',
+    14: '╯',
+    15: '╰',
+  };
+
   const createFontAtlas = (gl: WebGL2RenderingContext) => {
     const canvas = document.createElement('canvas');
     const atlasWidth = cellWidth * 16;
@@ -225,12 +243,17 @@ export const WebGLRenderer = (props: WebGLRendererProps & { canvasRef?: (el: HTM
     ctx.textBaseline = 'middle';
 
     for (let i = 0; i < 256; i++) {
-      if (!isPrintableASCII(String.fromCharCode(i))) {
+      let char = '';
+      if (isPrintableASCII(String.fromCharCode(i))) {
+        char = String.fromCharCode(i);
+      } else if (BOX_CHARS[i]) {
+        char = BOX_CHARS[i];
+      } else {
         continue;
       }
       const x = (i % 16) * cellWidth + cellWidth / 2;
       const y = Math.floor(i / 16) * cellHeight + cellHeight / 2;
-      ctx.fillText(String.fromCharCode(i), x, y);
+      ctx.fillText(char, x, y);
     }
 
     const tex = gl.createTexture()!;
