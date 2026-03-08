@@ -88,6 +88,7 @@ export default function App() {
     buffer: [] as string[],
     cursor: { x: 0, y: 0 },
     topLine: 0,
+    leftCol: 0,
     mode: 'Normal' as any,
     commandText: '',
     currentFilePath: null as string | null,
@@ -150,7 +151,9 @@ export default {
         rustEngine = new Engine(width, height);
       }
       if (vimInstance) {
+        const totalGutterWidth = vimState().gutters.reduce((acc, g) => acc + g.width, 0);
         vimInstance.setViewportHeight(height - 2);
+        vimInstance.setViewportWidth(width - totalGutterWidth);
         setVimState(vimInstance.getState());
       }
     }
@@ -178,7 +181,9 @@ export default {
 
       // Initial sizing
       updateDimensions();
+      const initialGutterWidth = vim.getState().gutters.reduce((acc: number, g: any) => acc + g.width, 0);
       vim.setViewportHeight(gridDim().height - 2);
+      vim.setViewportWidth(gridDim().width - initialGutterWidth);
 
       // Visual Viewport tracking for mobile keyboard
       const updateViewport = () => {
@@ -358,6 +363,7 @@ export default {
           buffer={() => vimState().buffer} 
           cursor={() => vimState().cursor} 
           topLine={() => vimState().topLine}
+          leftCol={() => vimState().leftCol}
           mode={() => vimState().mode} 
           commandText={() => vimState().commandText}
           currentFilePath={() => vimState().currentFilePath}
@@ -499,7 +505,8 @@ export default {
       
       // Only jump if clicking in the buffer area (above status and command lines)
       if (row < grid.height - 2) {
-        vimInstance.setCursor(col, row + vimState().topLine);
+        const totalGutterWidth = vimState().gutters.reduce((acc, g) => acc + g.width, 0);
+        vimInstance.setCursor(col - totalGutterWidth + vimState().leftCol, row + vimState().topLine);
       }
     }
 

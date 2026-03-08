@@ -6,7 +6,9 @@ export class VimEngine {
   private buffer: string[] = ['Welcome to Web-Vim!', 'Press i to insert text', 'Press Esc to return to Normal mode', 'Type :q to quit'];
   private cursor = { x: 0, y: 0 };
   private topLine = 0;
-  private viewportHeight = 22; // Default, will be updated by UI
+  private leftCol = 0;
+  private viewportHeight = 22;
+  private viewportWidth = 80; // Default, will be updated by UI
   private mode: VimMode = 'Normal';
   private commandText = '';
   private currentFilePath: string | null = null;
@@ -144,11 +146,25 @@ export class VimEngine {
     this.onUpdate();
   }
 
+  public setViewportWidth(width: number) {
+    this.viewportWidth = width;
+    this.scrollCursorIntoView();
+    this.onUpdate();
+  }
+
   private scrollCursorIntoView() {
+    // Vertical
     if (this.cursor.y < this.topLine) {
       this.topLine = this.cursor.y;
     } else if (this.cursor.y >= this.topLine + this.viewportHeight) {
       this.topLine = this.cursor.y - this.viewportHeight + 1;
+    }
+
+    // Horizontal
+    if (this.cursor.x < this.leftCol) {
+      this.leftCol = this.cursor.x;
+    } else if (this.cursor.x >= this.leftCol + this.viewportWidth) {
+      this.leftCol = this.cursor.x - this.viewportWidth + 1;
     }
   }
 
@@ -174,7 +190,9 @@ export class VimEngine {
       buffer: this.buffer,
       cursor: this.cursor,
       topLine: this.topLine,
+      leftCol: this.leftCol,
       viewportHeight: this.viewportHeight,
+      viewportWidth: this.viewportWidth,
       mode: this.mode,
       commandText: this.commandText,
       currentFilePath: this.currentFilePath,
@@ -296,8 +314,8 @@ export class VimEngine {
       case 'k': this.moveCursor('up'); break;
       case "ArrowRight":
       case 'l': this.moveCursor('right'); break;
-      case 'Home': this.cursor.x = 0; break;
-      case 'End': this.cursor.x = this.buffer[this.cursor.y]?.length || 0; break;
+      case 'Home': this.setCursor(0, this.cursor.y); break;
+      case 'End': this.setCursor(this.buffer[this.cursor.y]?.length || 0, this.cursor.y); break;
       case 'PageUp': this.setCursor(this.cursor.x, this.cursor.y - this.viewportHeight); break;
       case 'PageDown': this.setCursor(this.cursor.x, this.cursor.y + this.viewportHeight); break;
       case 'x': // delete character under cursor
@@ -319,8 +337,8 @@ export class VimEngine {
     if (key === 'ArrowDown') { this.moveCursor('down'); return; }
     if (key === 'ArrowUp') { this.moveCursor('up'); return; }
     if (key === 'ArrowRight') { this.moveCursor('right'); return; }
-    if (key === 'Home') { this.cursor.x = 0; return; }
-    if (key === 'End') { this.cursor.x = this.buffer[this.cursor.y]?.length || 0; return; }
+    if (key === 'Home') { this.setCursor(0, this.cursor.y); return; }
+    if (key === 'End') { this.setCursor(this.buffer[this.cursor.y]?.length || 0, this.cursor.y); return; }
     if (key === 'PageUp') { this.setCursor(this.cursor.x, this.cursor.y - this.viewportHeight); return; }
     if (key === 'PageDown') { this.setCursor(this.cursor.x, this.cursor.y + this.viewportHeight); return; }
 
@@ -328,15 +346,15 @@ export class VimEngine {
       if (this.cursor.x > 0) {
         const line = this.buffer[this.cursor.y];
         this.buffer[this.cursor.y] = line.slice(0, this.cursor.x - 1) + line.slice(this.cursor.x);
-        this.cursor.x--;
+        this.setCursor(this.cursor.x - 1, this.cursor.y);
       } else if (this.cursor.y > 0) {
         // Merge with previous line
         const prevLine = this.buffer[this.cursor.y - 1];
         const currentLine = this.buffer[this.cursor.y];
-        this.cursor.x = prevLine.length;
+        const targetX = prevLine.length;
         this.buffer[this.cursor.y - 1] = prevLine + currentLine;
         this.buffer.splice(this.cursor.y, 1);
-        this.cursor.y--;
+        this.setCursor(targetX, this.cursor.y - 1);
       }
     } else if (key === 'Enter') {
       const line = this.buffer[this.cursor.y];
@@ -344,12 +362,11 @@ export class VimEngine {
       const right = line.slice(this.cursor.x);
       this.buffer[this.cursor.y] = left;
       this.buffer.splice(this.cursor.y + 1, 0, right);
-      this.cursor.y++;
-      this.cursor.x = 0;
+      this.setCursor(0, this.cursor.y + 1);
     } else if (key.length === 1) {
       const line = this.buffer[this.cursor.y] || '';
       this.buffer[this.cursor.y] = line.slice(0, this.cursor.x) + key + line.slice(this.cursor.x);
-      this.cursor.x++;
+      this.setCursor(this.cursor.x + 1, this.cursor.y);
     }
   }
 

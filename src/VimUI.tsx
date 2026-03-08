@@ -6,6 +6,7 @@ interface VimUIProps {
   buffer: string[] | (() => string[]);
   cursor: { x: number; y: number } | (() => { x: number; y: number });
   topLine?: number | (() => number);
+  leftCol?: number | (() => number);
   mode: VimMode | (() => VimMode);
   commandText: string | (() => string);
   width: number | (() => number);
@@ -25,6 +26,7 @@ export const VimUI: Component<VimUIProps> = (props) => {
   const buffer = () => getProp(props.buffer) || [];
   const cursor = () => getProp(props.cursor) || { x: 0, y: 0 };
   const topLine = () => getProp(props.topLine) || 0;
+  const leftCol = () => getProp(props.leftCol) || 0;
   const mode = () => getProp(props.mode) || 'Normal';
   const commandText = () => getProp(props.commandText) || '';
   const width = () => getProp(props.width) || 80;
@@ -40,10 +42,11 @@ export const VimUI: Component<VimUIProps> = (props) => {
   const viewportHeight = () => height() - 2;
 
   const totalGutterWidth = () => gutters().reduce((acc, g) => acc + g.width, 0);
+  const viewportWidth = () => width() - totalGutterWidth();
 
   createEffect(() => {
     if (props.onCursorChange) {
-      const visualX = cursor().x + totalGutterWidth();
+      const visualX = cursor().x - leftCol() + totalGutterWidth();
       const visualY = cursor().y - topLine();
       props.onCursorChange({ x: visualX, y: visualY });
     }
@@ -71,7 +74,7 @@ export const VimUI: Component<VimUIProps> = (props) => {
             })
           ]);
         }),
-        h('text', { x: totalGutterWidth, y: 0, content: line })
+        h('text', { x: totalGutterWidth, y: 0, content: () => line.slice(leftCol(), leftCol() + viewportWidth()) })
       ]);
     }),
 
