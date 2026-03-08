@@ -107,9 +107,11 @@ export default function App() {
   let rustEngine: Engine | null = null;
   let vimInstance: VimEngine | null = null;
 
-  // Variables for pinch-to-zoom logic
+  // Variables for touch interaction (pinch-to-zoom and scrolling)
   let initialPinchDistance = 0;
   let initialCharSize = { width: 10, height: 20 };
+  let lastTouchY = 0;
+  let touchScrollAccumulator = 0;
 
   const lineNumbersPlugin = `
 export default {
@@ -309,6 +311,9 @@ export default {
           const dy = e.touches[0].clientY - e.touches[1].clientY;
           initialPinchDistance = Math.sqrt(dx * dx + dy * dy);
           initialCharSize = charSize();
+        } else if (e.touches.length === 1) {
+          lastTouchY = e.touches[0].clientY;
+          touchScrollAccumulator = 0;
         }
         
         // Prevent double-tap zoom
@@ -333,12 +338,34 @@ export default {
           const newHeight = newWidth * aspectRatio;
           setCharSize({ width: newWidth, height: newHeight });
           updateDimensions();
+        } else if (e.touches.length === 1 && vimInstance) {
+          const currentY = e.touches[0].clientY;
+          const deltaY = lastTouchY - currentY;
+          lastTouchY = currentY;
+          touchScrollAccumulator += deltaY;
+
+          const rowHeight = charSize().height;
+          if (Math.abs(touchScrollAccumulator) >= rowHeight) {
+            const rowsToScroll = Math.floor(Math.abs(touchScrollAccumulator) / rowHeight);
+            for (let i = 0; i < rowsToScroll; i++) {
+              if (touchScrollAccumulator > 0) {
+                processKey('e', true); // Scroll down (Ctrl+e)
+              } else {
+                processKey('y', true); // Scroll up (Ctrl+y)
+              }
+            }
+            touchScrollAccumulator %= rowHeight;
+          }
+          e.preventDefault();
         }
       };
 
       const handleTouchEnd = (e: TouchEvent) => {
         if (e.touches.length < 2) {
           initialPinchDistance = 0;
+        }
+        if (e.touches.length === 0) {
+          touchScrollAccumulator = 0;
         }
       };
 
