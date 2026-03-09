@@ -1,8 +1,9 @@
-import { createSignal, onMount, Show, createEffect } from 'solid-js';
+import { createSignal, onMount, Show, createEffect, For } from 'solid-js';
 import { render } from './solid-universal-tui';
 import { WebGLRenderer } from './WebGLRenderer';
 import { VimEngine } from './vim-engine';
 import { VimUI } from './VimUI';
+import type { VimState } from './types';
 import { getConfigFile, ensureConfigDir, writeConfigFile, PRELUDE_BASE } from './opfs-util';
 import { VirtualKeyboard } from 'virtual-keyboard';
 // @ts-ignore
@@ -100,23 +101,26 @@ export default function App() {
     bgs: new Uint8Array(80 * 24 * 3),
   });
 
-  const [vimState, setVimState] = createSignal({
+  const [vimState, setVimState] = createSignal<VimState>({
     buffer: [] as string[],
     cursor: { x: 0, y: 0 },
     topLine: 0,
     leftCol: 0,
-    mode: 'Normal' as any,
+    viewportHeight: 22,
+    viewportWidth: 80,
+    mode: 'Normal',
     commandText: '',
-    currentFilePath: null as string | null,
+    currentFilePath: null,
     isExplorer: false,
     explorerPath: '',
     isReadOnly: false,
-    plugins: [] as any[],
-    gutters: [] as any[],
-    lineRenderers: [] as any[],
-    completionItems: [] as any[],
+    plugins: [],
+    gutters: [],
+    lineRenderers: [],
+    contextMenuItems: [],
+    completionItems: [],
     selectedCompletionIndex: 0,
-    hoverText: null as string | null,
+    hoverText: null,
     hoverPos: { x: 0, y: 0 },
   });
 

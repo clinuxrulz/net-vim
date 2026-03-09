@@ -1,5 +1,5 @@
 import { PluginManager } from './plugin-manager';
-import type { VimMode, VimEvent, VimAPI, GutterOptions, CompletionItem, FileSystem, ContextMenuItem } from './types';
+import type { VimMode, VimEvent, VimAPI, GutterOptions, CompletionItem, FileSystem, ContextMenuItem, VimState, LineRendererOptions } from './types';
 import { opfsFS, PRELUDE_BASE } from './opfs-util';
 
 export class VimEngine {
@@ -16,7 +16,7 @@ export class VimEngine {
   private explorerPath = '';
   private isReadOnly = false;
   private gutters: GutterOptions[] = [];
-  private lineRenderers: any[] = [];
+  private lineRenderers: LineRendererOptions[] = [];
   private contextMenuItems: ContextMenuItem[] = [];
   private commands: Record<string, (args: string[]) => void> = {};
   private onUpdate: () => void;
@@ -150,7 +150,7 @@ export class VimEngine {
         this.gutters.sort((a, b) => (b.priority || 0) - (a.priority || 0));
         this.onUpdate();
       },
-      registerLineRenderer: (options: any) => {
+      registerLineRenderer: (options: LineRendererOptions) => {
         console.log(`[VimEngine] Registering line renderer: ${options.name}`);
         this.lineRenderers.push(options);
         this.lineRenderers.sort((a, b) => (b.priority || 0) - (a.priority || 0));
@@ -268,7 +268,7 @@ export class VimEngine {
     this.onUpdate();
   }
 
-  public getState() {
+  public getState(): VimState {
     return {
       buffer: this.buffer,
       cursor: this.cursor,

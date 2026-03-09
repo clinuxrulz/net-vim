@@ -54,6 +54,29 @@ export interface LineRendererOptions {
   }) => any;
 }
 
+export interface VimState {
+  buffer: string[];
+  cursor: { x: number; y: number };
+  topLine: number;
+  leftCol: number;
+  viewportHeight: number;
+  viewportWidth: number;
+  mode: VimMode;
+  commandText: string;
+  currentFilePath: string | null;
+  isExplorer: boolean;
+  explorerPath: string;
+  isReadOnly: boolean;
+  plugins: any[];
+  gutters: GutterOptions[];
+  lineRenderers: LineRendererOptions[];
+  contextMenuItems: ContextMenuItem[];
+  completionItems: CompletionItem[];
+  selectedCompletionIndex: number;
+  hoverText: string | null;
+  hoverPos: { x: number; y: number };
+}
+
 export interface FileSystem {
   readFile: (path: string) => Promise<string | null>;
   writeFile: (path: string, content: string) => Promise<void>;
