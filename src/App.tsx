@@ -40,6 +40,11 @@ export default {
     if (externalFs) {
       await api.loadPluginFromSource("external-fs", externalFs);
     }
+
+    const eruda = await api.configFs.readFile(".config/web-vim/prelude/eruda.tsx");
+    if (eruda) {
+      await api.loadPluginFromSource("eruda", eruda);
+    }
   }
 };
 `;
