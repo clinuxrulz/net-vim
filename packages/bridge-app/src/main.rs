@@ -142,7 +142,8 @@ async fn main() {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods([Method::GET, Method::POST])
-        .allow_headers([header::CONTENT_TYPE, "X-Bridge-Key".parse().unwrap()]);
+        .allow_headers([header::CONTENT_TYPE, "X-Bridge-Key".parse().unwrap()])
+        .allow_private_network(true);
 
     let app = Router::new()
         .route("/ls", get(list_directory))
