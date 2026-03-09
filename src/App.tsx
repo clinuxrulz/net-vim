@@ -127,7 +127,6 @@ export default function App() {
   const [viewportHeight, setViewportHeight] = createSignal(window.innerHeight);
   const [viewportTop, setViewportTop] = createSignal(0);
 
-  let hiddenInputRef: HTMLDivElement | undefined;
   let containerRef: HTMLDivElement | undefined;
   let rustEngine: Engine | null = null;
   let vimInstance: VimEngine | null = null;
@@ -289,31 +288,31 @@ export default {
       };
       (window as any).processKey = processKey;
 
-      // Keyboard listener
+      // Keyboard listeners for Desktop
       const handleKeyDown = (e: KeyboardEvent) => {
-        const keysToPrevent = ['j', 'k', 'h', 'l', 'i', 'a', 'o', ':', '/', 'Escape', 'Backspace', 'Enter', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'Home', 'End', 'PageUp', 'PageDown'];
-        if (e.key.length === 1 || keysToPrevent.includes(e.key)) {
-          if (keysToPrevent.includes(e.key) || e.ctrlKey) {
-            e.preventDefault();
-            processKey(e.key, e.ctrlKey);
+        if (isMobile()) return;
+        
+        const controlKeys = [
+          'Escape', 'Backspace', 'Enter', 'Tab',
+          'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
+          'Home', 'End', 'PageUp', 'PageDown',
+          'Insert', 'Delete',
+          'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'
+        ];
+
+        if (controlKeys.includes(e.key) || e.ctrlKey || e.altKey || e.metaKey) {
+          if (e.key === 'F12' || (e.ctrlKey && (e.key === 'r' || e.key === 'R' || e.key === 'i' || e.key === 'I'))) {
+            return;
           }
+          e.preventDefault();
+          processKey(e.key, e.ctrlKey);
         }
       };
-      
-      const handleInput = (e: InputEvent) => {
-        if (isMobile()) return; // Don't process input from hidden div on mobile
 
-        console.log('InputEvent:', {
-          data: e.data,
-          inputType: e.inputType,
-          textContentBeforeClear: hiddenInputRef?.textContent,
-        });
-        if (e.data && (e.inputType === 'insertText' || e.inputType === 'insertCompositionText')) {
-          if (hiddenInputRef) hiddenInputRef.textContent = '';
-          for (const char of e.data) {
-            processKey(char);
-          }
-        }
+      const handleKeyPress = (e: KeyboardEvent) => {
+        if (isMobile()) return;
+        e.preventDefault();
+        processKey(e.key, e.ctrlKey);
       };
 
       const handleWheel = (e: WheelEvent) => {
@@ -329,6 +328,7 @@ export default {
       };
 
       window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('keypress', handleKeyPress);
       window.addEventListener('wheel', handleWheel, { passive: false });
       window.addEventListener('resize', updateDimensions);
 
@@ -409,10 +409,6 @@ export default {
       window.addEventListener('touchstart', handleTouchStart, { passive: false });
       window.addEventListener('touchmove', handleTouchMove, { passive: false });
       window.addEventListener('touchend', handleTouchEnd);
-
-      if (hiddenInputRef) {
-        hiddenInputRef.addEventListener('input', handleInput as any);
-      }
 
       const stableRoot: any = { 
         type: 'Box', 
@@ -539,15 +535,13 @@ export default {
 
       return () => {
         window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('keypress', handleKeyPress);
         window.removeEventListener('wheel', handleWheel);
         window.removeEventListener('resize', updateDimensions);
         window.removeEventListener('popstate', handlePopState);
         window.removeEventListener('touchstart', handleTouchStart);
         window.removeEventListener('touchmove', handleTouchMove);
         window.removeEventListener('touchend', handleTouchEnd);
-        if (hiddenInputRef) {
-          hiddenInputRef.removeEventListener('input', handleInput as any);
-        }
         if (window.visualViewport) {
           window.visualViewport.removeEventListener('resize', updateViewport);
           window.visualViewport.removeEventListener('scroll', updateViewport);
@@ -589,8 +583,6 @@ export default {
         setShowKeyboard(true);
         window.history.pushState({ keyboard: true }, '');
       }
-    } else if (hiddenInputRef) {
-      hiddenInputRef.focus();
     }
   };
 
@@ -624,29 +616,6 @@ export default {
       onPointerDown={handlePointerDown}
       onContextMenu={handleContextMenu}
     >
-      <Show when={!isMobile()}>
-        <div
-          ref={hiddenInputRef!}
-          contenteditable="true"
-          style={{
-            position: 'absolute',
-            opacity: 0,
-            top: 0,
-            left: 0,
-            width: '1px',
-            height: '1px',
-            padding: 0,
-            border: 'none',
-            outline: 'none'
-          }}
-          // @ts-ignore
-          autocomplete="off"
-          autocorrect="off"
-          autocapitalize="off"
-          spellcheck={false}
-        ></div>
-      </Show>
-
       <div 
         ref={containerRef}
         style={{ 
