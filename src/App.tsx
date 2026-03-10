@@ -241,12 +241,6 @@ export default {
       
       // 1. Check OPFS for init.ts
       try {
-        // Load default context menu first
-        const contextMenuSource = await getConfigFile(PRELUDE_BASE + '/context-menu.tsx');
-        if (contextMenuSource) {
-           await vim.loadPluginFromSource("context-menu", contextMenuSource);
-        }
-
         let initSource = await getConfigFile(CONFIG_PATH);
         if (initSource) {
            await vim.loadPluginFromSource("init.ts", initSource);
