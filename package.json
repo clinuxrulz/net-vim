@@ -6,8 +6,8 @@
   "scripts": {
     "start": "vite",
     "dev": "vite",
-    "setup:wasm": "curl -L https://github.com/rustwasm/wasm-bindgen/releases/download/0.2.114/wasm-bindgen-0.2.114-aarch64-unknown-linux-musl.tar.gz -o wasm-bindgen.tar.gz && tar -xzf wasm-bindgen.tar.gz && mv wasm-bindgen-0.2.114-aarch64-unknown-linux-musl/wasm-bindgen ./wasm-bindgen && chmod +x ./wasm-bindgen && rm -rf wasm-bindgen.tar.gz wasm-bindgen-0.2.114-aarch64-unknown-linux-musl",
-    "build:wasm": "cd crates/tui-engine && cargo build --target wasm32-unknown-unknown --release && cd ../.. && (test -f ./wasm-bindgen || pnpm run setup:wasm) && ./wasm-bindgen crates/tui-engine/target/wasm32-unknown-unknown/release/tui_engine.wasm --out-dir crates/tui-engine/pkg --target web",
+    "setup:wasm": "wasm-pack --version",
+    "build:wasm": "wasm-pack build crates/tui-engine --target web --release --out-dir pkg",
     "build": "pnpm run build:wasm && tsc -b && vite build",
     "preview": "vite preview",
     "check-types": "tsc --noEmit"

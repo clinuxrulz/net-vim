@@ -98,10 +98,13 @@ export default {
               const response = await fetch(`${baseUrl}/cat?path=${encodeURIComponent(path)}`, { headers });
               if (response.status === 404) return null;
               if (response.status === 401) { api.log("Bridge Error: Unauthorized (Invalid Key)"); return null; }
-              if (!response.ok) throw new Error(await response.text());
+              if (!response.ok) return null; // Silently fail other errors to avoid log spam during probing
               return await response.text();
             } catch (err: any) {
-              api.log('BridgeFS readFile error: ' + err.message);
+              // Only log true network errors or crashes
+              if (err.name !== 'TypeError') {
+                api.log('BridgeFS readFile error: ' + err.message);
+              }
               return null;
             }
           },

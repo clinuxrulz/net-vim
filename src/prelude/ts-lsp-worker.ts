@@ -14,7 +14,31 @@ async function ensureTs() {
       vfs = await import("https://esm.sh/@typescript/vfs@1.6.4?bundle");
       
       console.log("TS-LSP Worker: Fetching standard library types...");
-      const libs = ["lib.d.ts", "lib.esnext.d.ts", "lib.dom.d.ts", "lib.es5.d.ts", "lib.es2015.d.ts"];
+      const libs = [
+        "lib.d.ts", 
+        "lib.es5.d.ts",
+        "lib.es6.d.ts",
+        "lib.esnext.d.ts", 
+        "lib.dom.d.ts", 
+        "lib.dom.iterable.d.ts",
+        "lib.es2015.d.ts",
+        "lib.es2015.collection.d.ts",
+        "lib.es2015.core.d.ts",
+        "lib.es2015.generator.d.ts",
+        "lib.es2015.iterable.d.ts",
+        "lib.es2015.promise.d.ts",
+        "lib.es2015.proxy.d.ts",
+        "lib.es2015.reflect.d.ts",
+        "lib.es2015.symbol.d.ts",
+        "lib.es2015.symbol.wellknown.d.ts",
+        "lib.es2016.d.ts",
+        "lib.es2017.d.ts",
+        "lib.es2018.d.ts",
+        "lib.es2019.d.ts",
+        "lib.es2020.d.ts",
+        "lib.es2021.d.ts",
+        "lib.es2022.d.ts"
+      ];
       await Promise.all(libs.map(async (lib) => {
         try {
           const res = await fetch("https://esm.sh/typescript@5.7.2/lib/" + lib);
@@ -53,10 +77,14 @@ const worker = {
       const compilerOptions = {
         target: tsInstance.ScriptTarget.ESNext,
         module: tsInstance.ModuleKind.ESNext,
-        lib: ["esnext", "dom"],
-        strict: false, // Relax strict mode for now to reduce errors
+        moduleResolution: tsInstance.ModuleResolutionKind.Bundler,
+        jsx: tsInstance.JsxEmit.Preserve,
+        jsxImportSource: "solid-js",
+        lib: ["esnext", "dom", "dom.iterable"],
+        strict: false,
         allowNonTsExtensions: true,
         noLib: false,
+        skipLibCheck: true,
       };
       
       const rootFiles = Array.from(fsMap.keys());
@@ -76,6 +104,12 @@ const worker = {
     } else {
       this.env.createFile(path, content);
     }
+  },
+
+  async getImportedModules(path, content) {
+    const { ts } = await ensureTs();
+    const info = ts.preProcessFile(content);
+    return info.importedFiles.map(f => f.fileName);
   },
 
   getLints(path) {

@@ -36,6 +36,232 @@ export default {
 
       let lints: any[] = [];
       let currentPath = '';
+      const indexedPackages = new Set<string>();
+      const indexedFiles = new Set<string>();
+      const failedLookups = new Set<string>();
+
+      // Global semaphore for all indexing tasks
+      let activeFetches = 0;
+      const MAX_CONCURRENT_FETCHES = 10;
+      const waitForSlot = async () => {
+        while (activeFetches >= MAX_CONCURRENT_FETCHES) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      };
+
+      const pathJoin = (...parts: string[]) => {
+        const joined = parts.join('/').split('/');
+        const result: string[] = [];
+        const isAbsolute = parts[0]?.startsWith('/') || false;
+        for (const part of joined) {
+          if (part === '..') result.pop();
+          else if (part !== '.' && part !== '') result.push(part);
+        }
+        return (isAbsolute ? '/' : '') + result.join('/');
+      };
+
+      const indexFile = async (fullPath: string) => {
+        if (indexedFiles.has(fullPath) || failedLookups.has(fullPath)) return;
+
+        const fs = api.getFS();
+        
+        await waitForSlot();
+        activeFetches++;
+        let content;
+        try {
+          content = await fs.readFile(fullPath);
+        } finally {
+          activeFetches--;
+        }
+
+        if (content === null) {
+          failedLookups.add(fullPath);
+          return;
+        }
+
+        indexedFiles.add(fullPath);
+        const absolutePath = fullPath.startsWith('/') ? fullPath : '/' + fullPath;
+        await worker.updateFile(absolutePath, content);
+        
+        // Log sparingly
+        if (indexedFiles.size % 20 === 0) api.log(`TS-LSP: Indexed ${indexedFiles.size} files...`);
+
+        try {
+          const imports = await worker.getImportedModules(absolutePath, content);
+          const dir = fullPath.split('/').slice(0, -1).join('/');
+
+          const tasks = imports.map(async (imp) => {
+            if (imp.startsWith('.')) {
+              // Relative import
+              const resolvedPath = pathJoin(dir, imp);
+              const possiblePaths = [
+                resolvedPath,
+                resolvedPath + '.d.ts',
+                resolvedPath.replace(/\.js$/, '.d.ts'),
+                resolvedPath.replace(/\.ts$/, '.d.ts'),
+                resolvedPath + '/index.d.ts',
+                resolvedPath + '.ts',
+                resolvedPath + '.tsx'
+              ];
+              for (const p of possiblePaths) {
+                if (failedLookups.has(p)) continue;
+                if (indexedFiles.has(p)) break;
+
+                // Try reading directly to check existence
+                await waitForSlot();
+                activeFetches++;
+                let c;
+                try {
+                  c = await fs.readFile(p);
+                } finally {
+                  activeFetches--;
+                }
+
+                if (c !== null) {
+                  await indexFile(p);
+                  break;
+                } else {
+                  failedLookups.add(p);
+                }
+              }
+            } else if (!imp.startsWith('/')) {
+              // Package import
+              await indexPackageTypes(imp);
+            }
+          });
+          await Promise.all(tasks);
+        } catch (e) {}
+      };
+
+      const indexPackageTypes = async (pkgName: string) => {
+        // Handle sub-packages (e.g., solid-js/web -> solid-js)
+        const parts = pkgName.split('/');
+        const basePkgName = pkgName.startsWith('@') ? `${parts[0]}/${parts[1]}` : parts[0];
+        
+        if (indexedPackages.has(basePkgName)) return;
+        indexedPackages.add(basePkgName);
+
+        const fs = api.getFS();
+        
+        const tryPackage = async (name: string) => {
+          try {
+            const pkgJsonPath = `node_modules/${name}/package.json`;
+            if (failedLookups.has(pkgJsonPath)) return false;
+
+            await waitForSlot();
+            activeFetches++;
+            let pkgJsonStr;
+            try {
+              pkgJsonStr = await fs.readFile(pkgJsonPath);
+            } finally {
+              activeFetches--;
+            }
+
+            if (!pkgJsonStr) {
+              failedLookups.add(pkgJsonPath);
+              return false;
+            }
+            
+            // Critical: Index package.json in the worker for resolution!
+            await worker.updateFile('/' + pkgJsonPath, pkgJsonStr);
+            
+            const pkgJson = JSON.parse(pkgJsonStr);
+            let typesPath = pkgJson.types || pkgJson.typings;
+            
+            if (!typesPath) {
+              const possiblePaths = [
+                `node_modules/${name}/index.d.ts`,
+                `node_modules/${name}/dist/index.d.ts`,
+                `node_modules/${name}/types.d.ts`,
+              ];
+              for (const p of possiblePaths) {
+                if (failedLookups.has(p)) continue;
+                
+                await waitForSlot();
+                activeFetches++;
+                let content;
+                try {
+                  content = await fs.readFile(p);
+                } finally {
+                  activeFetches--;
+                }
+
+                if (content !== null) {
+                  typesPath = p.replace(`node_modules/${name}/`, '');
+                  break;
+                } else {
+                  failedLookups.add(p);
+                }
+              }
+            }
+            
+            if (typesPath) {
+              const fullTypesPath = `node_modules/${name}/${typesPath}`;
+              await indexFile(fullTypesPath);
+              
+              // Special case for solid-js to ensure JSX types are loaded
+              if (name === 'solid-js') {
+                await indexFile('node_modules/solid-js/types/jsx.d.ts');
+                // Also index sub-packages that are common
+                await indexFile('node_modules/solid-js/web/types/index.d.ts');
+              }
+              return true;
+            }
+          } catch (e) {}
+          return false;
+        };
+
+        if (await tryPackage(basePkgName)) return;
+        await tryPackage(`@types/${basePkgName}`);
+      };
+
+      const resolveImports = async (fullPath: string, content: string) => {
+        try {
+          const absolutePath = fullPath.startsWith('/') ? fullPath : '/' + fullPath;
+          const imports = await worker.getImportedModules(absolutePath, content);
+          const dir = fullPath.split('/').slice(0, -1).join('/');
+
+          const tasks = imports.map(async (imp) => {
+            if (imp.startsWith('.')) {
+              // Relative import
+              const resolvedPath = pathJoin(dir, imp);
+              const possiblePaths = [
+                resolvedPath,
+                resolvedPath + '.d.ts',
+                resolvedPath.replace(/\.js$/, '.d.ts'),
+                resolvedPath.replace(/\.ts$/, '.d.ts'),
+                resolvedPath + '/index.d.ts',
+                resolvedPath + '.ts',
+                resolvedPath + '.tsx'
+              ];
+              for (const p of possiblePaths) {
+                if (failedLookups.has(p)) continue;
+                if (indexedFiles.has(p)) break;
+
+                await waitForSlot();
+                activeFetches++;
+                let c;
+                try {
+                  c = await api.getFS().readFile(p);
+                } finally {
+                  activeFetches--;
+                }
+
+                if (c !== null) {
+                  await indexFile(p);
+                  break;
+                } else {
+                  failedLookups.add(p);
+                }
+              }
+            } else if (!imp.startsWith('/')) {
+              // Package import
+              await indexPackageTypes(imp);
+            }
+          });
+          await Promise.all(tasks);
+        } catch (e) {}
+      };
 
       const updateLints = async () => {
         if (!currentPath) return;
@@ -127,7 +353,7 @@ export default {
 
         const walk = async (path: string) => {
           // Skip common large/irrelevant directories
-          if (path.includes('.git') || path.includes('dist') || path.includes('build') || path.includes('.next')) return;
+          if (path.includes('.git') || path.includes('dist') || path.includes('build') || path.includes('.next') || path.includes('node_modules')) return;
           
           try {
             const entries = await fs.listDirectory(path);
@@ -195,6 +421,7 @@ export default {
         if (currentPath.endsWith('.ts') || currentPath.endsWith('.tsx')) {
           const absolutePath = currentPath.startsWith('/') ? currentPath : '/' + currentPath;
           await worker.updateFile(absolutePath, data.content);
+          await resolveImports(absolutePath, data.content);
           await updateLints();
         }
       });
@@ -245,6 +472,7 @@ export default {
           if (currentPath && (currentPath.endsWith('.ts') || currentPath.endsWith('.tsx'))) {
             const absolutePath = currentPath.startsWith('/') ? currentPath : '/' + currentPath;
             await worker.updateFile(absolutePath, buffer);
+            await resolveImports(absolutePath, buffer);
             await updateLints();
             
             if (api.getMode() === 'Insert') {

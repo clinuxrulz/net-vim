@@ -51,7 +51,8 @@ async fn list_directory(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PathParams>
 ) -> impl IntoResponse {
-    let path = state.root_dir.join(&params.path);
+    let rel_path = params.path.trim_start_matches('/');
+    let path = state.root_dir.join(rel_path);
     if !path.exists() {
         return (StatusCode::NOT_FOUND, "Path not found").into_response();
     }
@@ -79,12 +80,13 @@ async fn read_file(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PathParams>
 ) -> impl IntoResponse {
-    let path = state.root_dir.join(&params.path);
+    let rel_path = params.path.trim_start_matches('/');
+    let path = state.root_dir.join(rel_path);
     if !path.exists() {
         return (StatusCode::NOT_FOUND, "File not found").into_response();
     }
     if path.is_dir() {
-        return (StatusCode::BAD_REQUEST, "Path is a directory").into_response();
+        return (StatusCode::NOT_FOUND, "Path is a directory").into_response();
     }
 
     match fs::read_to_string(path) {
@@ -98,7 +100,8 @@ async fn write_file(
     Query(params): Query<PathParams>,
     body: String
 ) -> impl IntoResponse {
-    let path = state.root_dir.join(&params.path);
+    let rel_path = params.path.trim_start_matches('/');
+    let path = state.root_dir.join(rel_path);
     
     // Ensure parent directory exists
     if let Some(parent) = path.parent() {
@@ -119,7 +122,8 @@ async fn is_directory(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PathParams>
 ) -> impl IntoResponse {
-    let path = state.root_dir.join(&params.path);
+    let rel_path = params.path.trim_start_matches('/');
+    let path = state.root_dir.join(rel_path);
     Json(IsDirResponse {
         is_dir: path.is_dir(),
     })
