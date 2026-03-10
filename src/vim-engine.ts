@@ -5,6 +5,7 @@ import { opfsFS, PRELUDE_BASE } from './opfs-util';
 export class VimEngine {
   private buffer: string[] = ['Welcome to Web-Vim!', 'Press i to insert text', 'Press Esc to return to Normal mode', 'Type :q to quit'];
   private cursor = { x: 0, y: 0 };
+  private visualStart: { x: number; y: number } | null = null;
   private topLine = 0;
   private leftCol = 0;
   private viewportHeight = 22;
@@ -137,6 +138,7 @@ export class VimEngine {
       setBuffer: (buffer: string[]) => { this.buffer = [...buffer]; this.trigger('TextChanged'); this.onUpdate(); },
       getCursor: () => ({ ...this.cursor }),
       setCursor: (x, y) => { this.setCursor(x, y); },
+      getVisualStart: () => this.visualStart ? ({ ...this.visualStart }) : null,
       getMode: () => this.mode,
       on: (event, callback) => {
         if (!this.eventListeners.has(event)) {
@@ -274,6 +276,7 @@ export class VimEngine {
     return {
       buffer: this.buffer,
       cursor: this.cursor,
+      visualStart: this.visualStart,
       topLine: this.topLine,
       leftCol: this.leftCol,
       viewportHeight: this.viewportHeight,
@@ -340,6 +343,8 @@ export class VimEngine {
       this.handleInsertMode(key, _ctrl);
     } else if (this.mode === 'Command') {
       this.handleCommandMode(key, _ctrl);
+    } else if (this.mode === 'Visual') {
+      this.handleVisualMode(key, _ctrl);
     }
     
     if (this.mode !== oldMode) {
@@ -478,6 +483,15 @@ export class VimEngine {
 
     switch (key) {
       case 'i': this.mode = 'Insert'; break;
+      case 'v': 
+        if (this.mode === 'Visual') {
+          this.mode = 'Normal';
+          this.visualStart = null;
+        } else {
+          this.mode = 'Visual'; 
+          this.visualStart = { ...this.cursor };
+        }
+        break;
       case ':': this.mode = 'Command'; this.commandText = ''; break;
       case "ArrowLeft":
       case 'h': this.moveCursor('left'); break;
@@ -543,6 +557,70 @@ export class VimEngine {
       this.buffer[this.cursor.y] = line.slice(0, this.cursor.x) + key + line.slice(this.cursor.x);
       this.setCursor(this.cursor.x + 1, this.cursor.y);
     }
+  }
+
+  private handleVisualMode(key: string, _ctrl: boolean) {
+    if (key === 'Escape') {
+      this.mode = 'Normal';
+      this.visualStart = null;
+      return;
+    }
+
+    switch (key) {
+      case "ArrowLeft":
+      case 'h': this.moveCursor('left'); break;
+      case "ArrowDown":
+      case 'j': this.moveCursor('down'); break;
+      case "ArrowUp":
+      case 'k': this.moveCursor('up'); break;
+      case "ArrowRight":
+      case 'l': this.moveCursor('right'); break;
+      case 'Home': this.setCursor(0, this.cursor.y); break;
+      case 'End': this.setCursor(this.buffer[this.cursor.y]?.length || 0, this.cursor.y); break;
+      case 'PageUp': this.setCursor(this.cursor.x, this.cursor.y - this.viewportHeight); break;
+      case 'PageDown': this.setCursor(this.cursor.x, this.cursor.y + this.viewportHeight); break;
+      case 'v':
+        this.mode = 'Normal';
+        this.visualStart = null;
+        break;
+      case 'd':
+      case 'x':
+        this.deleteSelection();
+        this.mode = 'Normal';
+        this.visualStart = null;
+        break;
+      case 'y':
+        // Yank not implemented yet
+        this.mode = 'Normal';
+        this.visualStart = null;
+        break;
+    }
+  }
+
+  private deleteSelection() {
+    if (!this.visualStart) return;
+
+    let start = this.visualStart;
+    let end = this.cursor;
+
+    // Normalize start/end
+    if (start.y > end.y || (start.y === end.y && start.x > end.x)) {
+      [start, end] = [end, start];
+    }
+
+    if (start.y === end.y) {
+      const line = this.buffer[start.y];
+      this.buffer[start.y] = line.slice(0, start.x) + line.slice(end.x + 1);
+      this.setCursor(start.x, start.y);
+    } else {
+      const startLine = this.buffer[start.y];
+      const endLine = this.buffer[end.y];
+      
+      this.buffer[start.y] = startLine.slice(0, start.x) + endLine.slice(end.x + 1);
+      this.buffer.splice(start.y + 1, end.y - start.y);
+      this.setCursor(start.x, start.y);
+    }
+    this.trigger('TextChanged');
   }
 
   private handleCommandMode(key: string, _ctrl: boolean) {

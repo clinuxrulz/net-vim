@@ -11,7 +11,7 @@ declare module "solid-js" {
 
 export const TYPES_VERSION = '1.0.0';
 
-export type VimMode = 'Normal' | 'Insert' | 'Command';
+export type VimMode = 'Normal' | 'Insert' | 'Command' | 'Visual';
 
 export type VimEvent = 'ModeChanged' | 'CursorMoved' | 'TextChanged' | 'BufferLoaded' | 'FileChanged' | 'FileDeleted' | 'KeyDown' | 'FSChanged';
 
@@ -53,12 +53,15 @@ export interface LineRendererOptions {
     gutterWidth: number | (() => number)
     leftCol: number | (() => number)
     viewportWidth: number | (() => number)
+    visualStart?: { x: number; y: number } | null | (() => { x: number; y: number } | null);
+    mode?: VimMode | (() => VimMode);
   }) => any;
 }
 
 export interface VimState {
   buffer: string[];
   cursor: { x: number; y: number };
+  visualStart: { x: number; y: number } | null;
   topLine: number;
   leftCol: number;
   viewportHeight: number;
@@ -92,6 +95,7 @@ export interface VimAPI {
   setBuffer: (buffer: string[]) => void;
   getCursor: () => { x: number, y: number };
   setCursor: (x: number, y: number) => void;
+  getVisualStart: () => { x: number, y: number } | null;
   getMode: () => VimMode;
   on: (event: VimEvent, callback: (...args: any[]) => void) => void;
   executeCommand: (cmd: string) => void;

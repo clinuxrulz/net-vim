@@ -51,6 +51,7 @@ pub struct TextProps {
     #[serde(default)]
     pub y: u16,
     pub color: Option<String>,
+    pub bg_color: Option<String>,
 }
 
 #[wasm_bindgen]
@@ -185,6 +186,11 @@ impl Engine {
                         if let Some(color_str) = &props.color {
                             if let Some(color) = parse_color(color_str) {
                                 style = style.fg(color);
+                            }
+                        }
+                        if let Some(bg_color_str) = &props.bg_color {
+                            if let Some(color) = parse_color(bg_color_str) {
+                                style = style.bg(color);
                             }
                         }
                         let paragraph = Paragraph::new(props.content.as_str())

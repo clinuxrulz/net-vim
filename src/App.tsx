@@ -109,6 +109,7 @@ export default function App() {
   const [vimState, setVimState] = createSignal<VimState>({
     buffer: [] as string[],
     cursor: { x: 0, y: 0 },
+    visualStart: null,
     topLine: 0,
     leftCol: 0,
     viewportHeight: 22,
@@ -421,6 +422,7 @@ export default {
         <VimUI 
           buffer={() => vimState().buffer} 
           cursor={() => vimState().cursor} 
+          visualStart={() => vimState().visualStart}
           topLine={() => vimState().topLine}
           leftCol={() => vimState().leftCol}
           mode={() => vimState().mode} 
@@ -499,6 +501,8 @@ export default {
             if (props.content !== undefined) props.content = String(props.content ?? '');
             if (props.title !== undefined) props.title = String(props.title ?? '');
             if (props.color !== undefined) props.color = String(props.color);
+            if (props.bg_color !== undefined) props.bg_color = String(props.bg_color);
+            if (props.bgColor !== undefined) props.bg_color = String(props.bgColor);
 
             return [{
               type,

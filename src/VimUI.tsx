@@ -4,6 +4,7 @@ import type { VimMode, GutterOptions, LineRendererOptions } from './types';
 interface VimUIProps {
   buffer: string[] | (() => string[]);
   cursor: { x: number; y: number } | (() => { x: number; y: number });
+  visualStart?: { x: number; y: number } | null | (() => { x: number; y: number } | null);
   topLine?: number | (() => number);
   leftCol?: number | (() => number);
   mode: VimMode | (() => VimMode);
@@ -29,6 +30,7 @@ export const VimUI: Component<VimUIProps> = (props) => {
 
   const buffer = () => getProp(props.buffer) || [];
   const cursor = () => getProp(props.cursor) || { x: 0, y: 0 };
+  const visualStart = () => getProp(props.visualStart) ?? null;
   const topLine = () => getProp(props.topLine) || 0;
   const leftCol = () => getProp(props.leftCol) || 0;
   const mode = () => getProp(props.mode) || 'Normal';
@@ -129,7 +131,51 @@ export const VimUI: Component<VimUIProps> = (props) => {
               </For>
               <Show 
                 when={lineRenderer()} 
-                fallback={<tui-text x={totalGutterWidth()} y={0} content={line().slice(leftCol(), leftCol() + viewportWidth())} />}
+                fallback={
+                  (() => {
+                    const start = visualStart();
+                    if (!start || mode() !== 'Visual') {
+                      return <tui-text x={totalGutterWidth()} y={0} content={line().slice(leftCol(), leftCol() + viewportWidth())} />;
+                    }
+
+                    const end = cursor();
+                    const lineIdx = absoluteLineIndex();
+                    const lineContent = line();
+                    const len = lineContent.length;
+
+                    let s = start;
+                    let e = end;
+                    if (s.y > e.y || (s.y === e.y && s.x > e.x)) {
+                      [s, e] = [e, s];
+                    }
+
+                    if (lineIdx < s.y || lineIdx > e.y) {
+                      return <tui-text x={totalGutterWidth()} y={0} content={lineContent.slice(leftCol(), leftCol() + viewportWidth())} />;
+                    }
+
+                    let highlightStart = 0;
+                    let highlightEnd = len;
+
+                    if (lineIdx === s.y) highlightStart = s.x;
+                    if (lineIdx === e.y) highlightEnd = e.x;
+
+                    // Ensure highlightEnd is inclusive for the character at the cursor
+                    // in visual mode
+                    highlightEnd = Math.min(len, highlightEnd + 1);
+
+                    const before = lineContent.slice(leftCol(), Math.max(leftCol(), highlightStart));
+                    const selected = lineContent.slice(Math.max(leftCol(), highlightStart), Math.min(leftCol() + viewportWidth(), highlightEnd));
+                    const after = lineContent.slice(Math.max(leftCol(), highlightEnd), leftCol() + viewportWidth());
+
+                    return (
+                      <tui-box x={totalGutterWidth()} y={0} width={viewportWidth()} height={1}>
+                        <tui-text x={0} y={0} content={before} />
+                        <tui-text x={before.length} y={0} content={selected} bg_color="#004b72" />
+                        <tui-text x={before.length + selected.length} y={0} content={after} />
+                      </tui-box>
+                    );
+                  })()
+                }
               >
                 <tui-box x={totalGutterWidth()} y={0} width={viewportWidth()} height={1}>
                   {() => lineRenderer()?.render({
@@ -138,7 +184,9 @@ export const VimUI: Component<VimUIProps> = (props) => {
                     isCursorLine: () => cursor().y === absoluteLineIndex(),
                     gutterWidth: totalGutterWidth,
                     leftCol: leftCol,
-                    viewportWidth: viewportWidth
+                    viewportWidth: viewportWidth,
+                    visualStart: visualStart(),
+                    mode: mode()
                   })}
                 </tui-box>
               </Show>
