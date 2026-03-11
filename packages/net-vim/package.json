@@ -16,7 +16,8 @@
     }
   },
   "scripts": {
-    "build": "vite build",
+    "sync-wasm": "cp -r ../../crates/tui-engine/pkg/* ./src/wasm/",
+    "build": "npm run sync-wasm && vite build",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

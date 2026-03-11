@@ -1,0 +1,15 @@
+{
+  "name": "tui-engine",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "tui_engine_bg.wasm",
+    "tui_engine.js",
+    "tui_engine.d.ts"
+  ],
+  "main": "tui_engine.js",
+  "types": "tui_engine.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

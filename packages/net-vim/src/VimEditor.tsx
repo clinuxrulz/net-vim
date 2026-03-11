@@ -7,7 +7,7 @@ import type { VimState } from './types';
 import { getConfigFile, ensureConfigDir, writeConfigFile, PRELUDE_BASE } from './opfs-util';
 import { VirtualKeyboard } from 'virtual-keyboard';
 // @ts-ignore
-import init, { Engine } from '../../../crates/tui-engine/pkg/tui_engine';
+import init, { Engine } from './wasm/tui_engine';
 
 const CONFIG_PATH = '.config/net-vim/init.ts';
 
