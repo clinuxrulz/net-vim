@@ -27,7 +27,7 @@ The editor can be initialized into any HTML element without requiring a specific
 import { initNetVim } from '@net-vim/core';
 
 const container = document.getElementById('editor-container');
-const { vim, dispose } = initNetVim(container);
+const { vim, dispose } = await initNetVim(container);
 
 // Access the Vim API
 vim.getAPI().registerCommand('hello', () => {
