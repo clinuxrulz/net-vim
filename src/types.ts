@@ -55,6 +55,7 @@ export interface LineRendererOptions {
     viewportWidth: number | (() => number)
     visualStart?: { x: number; y: number } | null | (() => { x: number; y: number } | null);
     mode?: VimMode | (() => VimMode);
+    cursor?: { x: number; y: number } | (() => { x: number; y: number });
   }) => any;
 }
 
