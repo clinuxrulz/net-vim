@@ -1,10 +1,8 @@
-## Usage
+# Virtual Keyboard
 
-```bash
-$ npm install # or pnpm install or yarn install
-```
+[![npm version](https://img.shields.io/npm/v/@net-vim/core.svg)](https://www.npmjs.com/package/@net-vim/core)
 
-### Learn more on the [Solid Website](https://solidjs.com) and come chat with us on our [Discord](https://discord.com/invite/solidjs)
+Virtual keyboard component for web applications, specifically designed for mobile terminal-like experiences.
 
 ## Available Scripts
 

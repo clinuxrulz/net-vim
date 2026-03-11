@@ -1,7 +1,34 @@
 {
   "name": "@net-vim/core",
   "version": "0.2.0",
+  "description": "Vim-compatible editor engine and component library for the web.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clinuxrulz/net-vim.git",
+    "directory": "packages/net-vim"
+  },
+  "keywords": [
+    "vim",
+    "neovim",
+    "vi",
+    "editor",
+    "tui",
+    "terminal",
+    "webgl",
+    "solidjs",
+    "component",
+    "modal-editing",
+    "opfs",
+    "code-editor",
+    "browser-editor"
+  ],
+  "author": "clinuxrulz",
+  "license": "MIT",
+  "homepage": "https://github.com/clinuxrulz/net-vim#readme",
+  "bugs": {
+    "url": "https://github.com/clinuxrulz/net-vim/issues"
+  },
   "files": [
     "dist",
     "README.md",

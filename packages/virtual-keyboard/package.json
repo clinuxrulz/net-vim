@@ -2,7 +2,23 @@
   "name": "virtual-keyboard",
   "private": true,
   "version": "0.0.0",
+  "description": "Virtual keyboard component for web applications.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clinuxrulz/net-vim.git",
+    "directory": "packages/virtual-keyboard"
+  },
+  "keywords": [
+    "vim",
+    "editor",
+    "keyboard",
+    "virtual-keyboard",
+    "solidjs",
+    "component"
+  ],
+  "author": "clinuxrulz",
+  "license": "MIT",
   "main": "./src/index.ts",
   "module": "./src/index.ts",
   "types": "./src/index.ts",

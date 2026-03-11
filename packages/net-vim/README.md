@@ -1,5 +1,7 @@
 # Net-Vim
 
+[![npm version](https://img.shields.io/npm/v/@net-vim/core.svg)](https://www.npmjs.com/package/@net-vim/core)
+
 Net-Vim is a web-based Vim-compatible editor engine and component library. It provides a terminal-like editing experience within web applications using a custom TUI engine and WebGL renderer.
 
 ## Features

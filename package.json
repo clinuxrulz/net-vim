@@ -2,7 +2,25 @@
   "name": "net-vim",
   "private": true,
   "version": "0.0.0",
+  "description": "A web-based Vim-compatible editor engine.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clinuxrulz/net-vim.git"
+  },
+  "keywords": [
+    "vim",
+    "editor",
+    "tui",
+    "terminal",
+    "webgl",
+    "solidjs",
+    "component",
+    "modal-editing",
+    "opfs"
+  ],
+  "author": "clinuxrulz",
+  "license": "MIT",
   "scripts": {
     "start": "vite",
     "dev": "vite",
