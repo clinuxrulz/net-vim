@@ -1,9 +1,11 @@
 {
   "name": "@net-vim/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "main": "./dist/index.js",
   "module": "./dist/index.js",
