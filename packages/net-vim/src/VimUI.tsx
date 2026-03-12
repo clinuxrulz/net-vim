@@ -224,7 +224,7 @@ export const VimUI: Component<VimUIProps> = (props) => {
                 }}
               </For>
               <Show 
-                when={lineRenderer() && !wrap()} 
+                when={lineRenderer()} 
                 fallback={
                   (() => {
                     const start = visualStart();
@@ -283,17 +283,20 @@ export const VimUI: Component<VimUIProps> = (props) => {
                 }
               >
                 <tui-box x={totalGutterWidth()} y={0} width={viewportWidth()} height={1}>
-                  {() => lineRenderer()?.render({
-                    lineIndex: absoluteLineIndex,
-                    lineContent: lineContent(),
-                    isCursorLine: () => cursor().y === absoluteLineIndex(),
-                    gutterWidth: totalGutterWidth,
-                    leftCol: leftCol,
-                    viewportWidth: viewportWidth,
-                    visualStart: visualStart(),
-                    mode: mode(),
-                    cursor: cursor()
-                  })}
+                  {() => {
+                    const localLeftCol = wrap() ? item().rowInLine * viewportWidth() : leftCol();
+                    return lineRenderer()?.render({
+                      lineIndex: absoluteLineIndex,
+                      lineContent: lineContent(),
+                      isCursorLine: () => cursor().y === absoluteLineIndex(),
+                      gutterWidth: totalGutterWidth,
+                      leftCol: () => localLeftCol,
+                      viewportWidth: viewportWidth,
+                      visualStart: visualStart(),
+                      mode: mode(),
+                      cursor: cursor()
+                    });
+                  }}
                 </tui-box>
               </Show>
             </tui-box>
