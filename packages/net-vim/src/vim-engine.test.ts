@@ -18,8 +18,8 @@ vi.mock('./opfs-util', () => ({
 }));
 
 // Mock window.Babel and navigator.clipboard
-global.window = {
-  ...global.window,
+globalThis.window = {
+  ...globalThis.window,
   Babel: {
     transform: vi.fn(),
   },

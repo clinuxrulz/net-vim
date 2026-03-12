@@ -129,6 +129,8 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
     hoverText: null,
     hoverPos: { x: 0, y: 0 },
     statusMessage: null,
+    commandCursorX: 0,
+    wrap: false,
   });
 
   let containerRef: HTMLDivElement | undefined;
