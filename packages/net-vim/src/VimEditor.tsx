@@ -588,15 +588,39 @@ export default {
     if (x >= 0 && x <= rect.width && y >= 0 && y <= rect.height) {
       const col = Math.floor((x / rect.width) * grid.width);
       const row = Math.floor((y / rect.height) * grid.height);
-      
+
       // Only jump if clicking in the buffer area (above status and command lines)
       if (row < grid.height - 2) {
-        const totalGutterWidth = vimState().gutters.reduce((acc, g) => acc + g.width, 0);
-        vimInstance.setCursor(col - totalGutterWidth + vimState().leftCol, row + vimState().topLine);
+        const state = vimState();
+        const totalGutterWidth = state.gutters.reduce((acc, g) => acc + g.width, 0);
+        const vWidth = Math.max(1, grid.width - totalGutterWidth);
+        const clickCol = col - totalGutterWidth;
+
+        if (state.wrap) {
+          let currentY = 0;
+          const lines = state.buffer;
+          const start = state.topLine;
+
+          for (let i = start; i < lines.length; i++) {
+            const line = lines[i];
+            const lineRows = Math.max(1, Math.ceil((line?.length || 0) / vWidth));
+
+            if (currentY + lineRows > row) {
+              // Clicked on this buffer line
+              const rowInLine = row - currentY;
+              const finalCol = rowInLine * vWidth + clickCol;
+              vimInstance.setCursor(Math.max(0, Math.min(finalCol, line?.length || 0)), i);
+              return;
+            }
+            currentY += lineRows;
+            if (currentY >= grid.height - 2) break;
+          }
+        } else {
+          vimInstance.setCursor(Math.max(0, clickCol + state.leftCol), row + state.topLine);
+        }
       }
     }
-  };
-
+    };
   const handlePointerUp = (e: PointerEvent) => {
     const duration = Date.now() - lastPointerDownTime;
     if (isMobile() && duration < 300) {
