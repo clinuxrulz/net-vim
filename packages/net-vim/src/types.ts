@@ -114,6 +114,7 @@ export interface VimAPI {
   hideHover: () => void;
   registerContextMenuItem: (item: ContextMenuItem) => void;
   insertText: (text: string) => void;
+  rerender: () => void;
 
   // File System
   setFS: (fs: FileSystem) => void;

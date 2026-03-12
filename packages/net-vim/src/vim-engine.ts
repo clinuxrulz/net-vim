@@ -256,6 +256,7 @@ export class VimEngine {
         this.trigger('TextChanged');
         this.onUpdate();
       },
+      rerender: () => this.onUpdate(),
       setFS: (fs) => { this.fs = fs; this.trigger('FSChanged'); this.onUpdate(); },
       getFS: () => this.fs,
       resetFS: () => { this.fs = opfsFS; this.trigger('FSChanged'); this.onUpdate(); },

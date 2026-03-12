@@ -49,6 +49,7 @@ export default {
           const classifications = await worker.getClassifications(absolutePath, 0, buffer.length);
           if (classifications) {
             classificationsMap.set(absolutePath, classifications);
+            api.rerender();
           }
         } catch (e) {
           api.log('TS-LSP: Error updating classifications: ' + e.message);
