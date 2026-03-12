@@ -23,6 +23,7 @@ interface VimUIProps {
   hoverText?: string | null | (() => string | null);
   hoverPos?: { x: number; y: number } | (() => { x: number; y: number });
   statusMessage?: string | null | (() => string | null);
+  wrap: boolean | (() => boolean);
   onCursorChange?: (cursor: { x: number; y: number }) => void;
 }
 
@@ -49,6 +50,7 @@ export const VimUI: Component<VimUIProps> = (props) => {
   const hoverText = () => getProp(props.hoverText);
   const hoverPos = () => getProp(props.hoverPos) || { x: 0, y: 0 };
   const statusMessage = () => getProp(props.statusMessage);
+  const wrap = () => getProp(props.wrap);
 
   const statusLineY = () => height() - 2;
   const commandLineY = () => height() - 1;
@@ -57,8 +59,41 @@ export const VimUI: Component<VimUIProps> = (props) => {
   const totalGutterWidth = () => gutters().reduce((acc, g) => acc + g.width, 0);
   const viewportWidth = () => width() - totalGutterWidth();
 
-  const visualCursorX = () => cursor().x - leftCol() + totalGutterWidth();
-  const visualCursorY = () => cursor().y - topLine();
+  const visualCursorY = () => {
+    const c = cursor();
+    const start = topLine();
+    const vWidth = viewportWidth();
+    const buf = buffer();
+    
+    if (c.y < start) return -1;
+    
+    let y = 0;
+    for (let i = start; i < c.y; i++) {
+      if (wrap()) {
+        y += Math.max(1, Math.ceil((buf[i]?.length || 0) / vWidth));
+      } else {
+        y += 1;
+      }
+    }
+    
+    if (wrap()) {
+      y += Math.floor(c.x / vWidth);
+    }
+    
+    return y;
+  };
+
+  const visualCursorX = () => {
+    const c = cursor();
+    const vWidth = viewportWidth();
+    const gWidth = totalGutterWidth();
+    
+    if (wrap()) {
+      return (c.x % vWidth) + gWidth;
+    } else {
+      return c.x - leftCol() + gWidth;
+    }
+  };
 
   const lineRenderer = () => lineRenderers()[0];
 
@@ -73,7 +108,53 @@ export const VimUI: Component<VimUIProps> = (props) => {
     return (currentFilePath() || '[No Name]') + (isReadOnly() ? ' [RO]' : '');
   };
 
-  const visibleLines = () => buffer().slice(topLine(), topLine() + viewportHeight());
+  const displayLines = () => {
+    const lines = buffer();
+    const start = topLine();
+    const vHeight = viewportHeight();
+    const vWidth = viewportWidth();
+    
+    const result: Array<{
+      content: string;
+      bufferIndex: number;
+      isFirstDisplayRow: boolean;
+      rowInLine: number;
+    }> = [];
+    
+    let currentY = 0;
+    for (let i = start; i < lines.length && currentY < vHeight; i++) {
+      const line = lines[i];
+      if (wrap()) {
+        const rows = [];
+        if (line.length === 0) {
+          rows.push("");
+        } else {
+          for (let j = 0; j < line.length; j += vWidth) {
+            rows.push(line.slice(j, j + vWidth));
+          }
+        }
+        
+        for (let j = 0; j < rows.length && currentY < vHeight; j++) {
+          result.push({
+            content: rows[j],
+            bufferIndex: i,
+            isFirstDisplayRow: j === 0,
+            rowInLine: j
+          });
+          currentY++;
+        }
+      } else {
+        result.push({
+          content: line.slice(leftCol(), leftCol() + vWidth),
+          bufferIndex: i,
+          isFirstDisplayRow: true,
+          rowInLine: 0
+        });
+        currentY++;
+      }
+    }
+    return result;
+  };
 
   const MAX_COMPLETIONS = 6;
   const completionStartIndex = () => {
@@ -112,9 +193,12 @@ export const VimUI: Component<VimUIProps> = (props) => {
   return (
     <tui-box x={0} y={0} width={width()} height={height()} border={false}>
       {/* Gutters & Buffer View */}
-      <Index each={visibleLines()}>
-        {(line: () => string, i: number) => {
-          const absoluteLineIndex = () => topLine() + i;
+      <Index each={displayLines()}>
+        {(item, i) => {
+          const absoluteLineIndex = () => item().bufferIndex;
+          const isCursorLine = () => cursor().y === absoluteLineIndex();
+          const lineContent = () => buffer()[absoluteLineIndex()] || "";
+
           return (
             <tui-box x={0} y={i} width={width()} height={1}>
               <For each={gutters()}>
@@ -122,29 +206,32 @@ export const VimUI: Component<VimUIProps> = (props) => {
                   const x = () => gutters().slice(0, index()).reduce((acc, g) => acc + g.width, 0);
                   return (
                     <tui-box x={x()} y={0} width={gutter.width} height={1}>
-                      {gutter.render({ 
-                        lineIndex: absoluteLineIndex(), 
-                        lineContent: line(), 
-                        isCursorLine: cursor().y === absoluteLineIndex() 
-                      })}
+                      <Show when={item().isFirstDisplayRow}>
+                        {gutter.render({ 
+                          lineIndex: absoluteLineIndex(), 
+                          lineContent: lineContent(), 
+                          isCursorLine: isCursorLine() 
+                        })}
+                      </Show>
                     </tui-box>
                   );
                 }}
               </For>
               <Show 
-                when={lineRenderer()} 
+                when={lineRenderer() && !wrap()} 
                 fallback={
                   (() => {
                     const start = visualStart();
+                    const lineIdx = absoluteLineIndex();
+                    const rowContent = item().content;
+                    const vWidth = viewportWidth();
+                    const gWidth = totalGutterWidth();
+
                     if (!start || mode() !== 'Visual') {
-                      return <tui-text x={totalGutterWidth()} y={0} content={line().slice(leftCol(), leftCol() + viewportWidth())} />;
+                      return <tui-text x={gWidth} y={0} content={rowContent} />;
                     }
 
                     const end = cursor();
-                    const lineIdx = absoluteLineIndex();
-                    const lineContent = line();
-                    const len = lineContent.length;
-
                     let s = start;
                     let e = end;
                     if (s.y > e.y || (s.y === e.y && s.x > e.x)) {
@@ -152,25 +239,35 @@ export const VimUI: Component<VimUIProps> = (props) => {
                     }
 
                     if (lineIdx < s.y || lineIdx > e.y) {
-                      return <tui-text x={totalGutterWidth()} y={0} content={lineContent.slice(leftCol(), leftCol() + viewportWidth())} />;
+                      return <tui-text x={gWidth} y={0} content={rowContent} />;
                     }
 
-                    let highlightStart = 0;
-                    let highlightEnd = len;
+                    // Calculate selection start and end within THIS display row
+                    const rowStartOffset = item().rowInLine * vWidth;
+                    const rowEndOffset = rowStartOffset + vWidth;
 
-                    if (lineIdx === s.y) highlightStart = s.x;
-                    if (lineIdx === e.y) highlightEnd = e.x;
+                    let highlightStartInLine = 0;
+                    let highlightEndInLine = lineContent().length;
 
-                    // Ensure highlightEnd is inclusive for the character at the cursor
-                    // in visual mode
-                    highlightEnd = Math.min(len, highlightEnd + 1);
+                    if (lineIdx === s.y) highlightStartInLine = s.x;
+                    if (lineIdx === e.y) highlightEndInLine = e.x + 1;
 
-                    const before = lineContent.slice(leftCol(), Math.max(leftCol(), highlightStart));
-                    const selected = lineContent.slice(Math.max(leftCol(), highlightStart), Math.min(leftCol() + viewportWidth(), highlightEnd));
-                    const after = lineContent.slice(Math.max(leftCol(), highlightEnd), leftCol() + viewportWidth());
+                    const highlightStart = Math.max(rowStartOffset, highlightStartInLine);
+                    const highlightEnd = Math.min(rowEndOffset, highlightEndInLine);
+
+                    if (highlightStart >= highlightEnd) {
+                       return <tui-text x={gWidth} y={0} content={rowContent} />;
+                    }
+
+                    const relStart = Math.max(0, highlightStart - rowStartOffset);
+                    const relEnd = Math.min(vWidth, highlightEnd - rowStartOffset);
+
+                    const before = rowContent.slice(0, relStart);
+                    const selected = rowContent.slice(relStart, relEnd);
+                    const after = rowContent.slice(relEnd);
 
                     return (
-                      <tui-box x={totalGutterWidth()} y={0} width={viewportWidth()} height={1}>
+                      <tui-box x={gWidth} y={0} width={vWidth} height={1}>
                         <tui-text x={0} y={0} content={before} />
                         <tui-text x={before.length} y={0} content={selected} bg_color="#004b72" />
                         <tui-text x={before.length + selected.length} y={0} content={after} />
@@ -182,7 +279,7 @@ export const VimUI: Component<VimUIProps> = (props) => {
                 <tui-box x={totalGutterWidth()} y={0} width={viewportWidth()} height={1}>
                   {() => lineRenderer()?.render({
                     lineIndex: absoluteLineIndex,
-                    lineContent: line(),
+                    lineContent: lineContent(),
                     isCursorLine: () => cursor().y === absoluteLineIndex(),
                     gutterWidth: totalGutterWidth,
                     leftCol: leftCol,

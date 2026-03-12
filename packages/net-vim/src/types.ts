@@ -82,6 +82,7 @@ export interface VimState {
   hoverText: string | null;
   hoverPos: { x: number; y: number };
   statusMessage: string | null;
+  wrap: boolean;
 }
 
 export interface FileSystem {

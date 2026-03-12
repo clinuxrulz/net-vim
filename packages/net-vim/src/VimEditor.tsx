@@ -449,6 +449,7 @@ export default {
           hoverText={() => vimState().hoverText}
           hoverPos={() => vimState().hoverPos}
           statusMessage={() => vimState().statusMessage}
+          wrap={() => vimState().wrap}
           width={() => gridDim().width}
           height={() => gridDim().height}
           onCursorChange={(c) => setVisualCursor(c)}

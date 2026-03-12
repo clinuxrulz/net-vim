@@ -37,6 +37,7 @@ export class VimEngine {
   private hoverPos = { x: 0, y: 0 };
   private statusMessage: string | null = null;
   private messageTimeout: any = null;
+  private wrap = true;
 
   constructor(onUpdate: () => void) {
     this.onUpdate = onUpdate;
@@ -64,6 +65,18 @@ export class VimEngine {
   }
 
   private registerBuiltinCommands() {
+    this.commands['set'] = (args) => {
+      const option = args[0];
+      if (option === 'wrap') {
+        this.wrap = true;
+      } else if (option === 'nowrap') {
+        this.wrap = false;
+      } else if (option === 'wrap!') {
+        this.wrap = !this.wrap;
+      }
+      this.onUpdate();
+    };
+
     this.commands['q'] = () => {
       console.log('Quitting...');
     };
@@ -265,17 +278,44 @@ export class VimEngine {
 
   private scrollCursorIntoView() {
     // Vertical
-    if (this.cursor.y < this.topLine) {
-      this.topLine = this.cursor.y;
-    } else if (this.cursor.y >= this.topLine + this.viewportHeight) {
-      this.topLine = this.cursor.y - this.viewportHeight + 1;
+    if (this.wrap) {
+      // In wrap mode, calculating if cursor is in view is more complex.
+      // For now, let's at least ensure topLine is not after cursor.y
+      if (this.cursor.y < this.topLine) {
+        this.topLine = this.cursor.y;
+      } else {
+        // Calculate display rows from topLine to cursor.y
+        let displayRows = 0;
+        for (let i = this.topLine; i < this.cursor.y; i++) {
+          displayRows += Math.max(1, Math.ceil((this.buffer[i]?.length || 0) / this.viewportWidth));
+        }
+        displayRows += Math.floor(this.cursor.x / this.viewportWidth);
+
+        if (displayRows >= this.viewportHeight) {
+          // Need to scroll down. We increment topLine until cursor is in view.
+          while (displayRows >= this.viewportHeight && this.topLine < this.cursor.y) {
+            displayRows -= Math.max(1, Math.ceil((this.buffer[this.topLine]?.length || 0) / this.viewportWidth));
+            this.topLine++;
+          }
+        }
+      }
+    } else {
+      if (this.cursor.y < this.topLine) {
+        this.topLine = this.cursor.y;
+      } else if (this.cursor.y >= this.topLine + this.viewportHeight) {
+        this.topLine = this.cursor.y - this.viewportHeight + 1;
+      }
     }
 
     // Horizontal
-    if (this.cursor.x < this.leftCol) {
-      this.leftCol = this.cursor.x;
-    } else if (this.cursor.x >= this.leftCol + this.viewportWidth) {
-      this.leftCol = this.cursor.x - this.viewportWidth + 1;
+    if (this.wrap) {
+      this.leftCol = 0;
+    } else {
+      if (this.cursor.x < this.leftCol) {
+        this.leftCol = this.cursor.x;
+      } else if (this.cursor.x >= this.leftCol + this.viewportWidth) {
+        this.leftCol = this.cursor.x - this.viewportWidth + 1;
+      }
     }
   }
 
@@ -320,6 +360,7 @@ export class VimEngine {
       hoverText: this.hoverText,
       hoverPos: this.hoverPos,
       statusMessage: this.statusMessage,
+      wrap: this.wrap,
     };
   }
 
