@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import solidPlugin from 'vite-plugin-solid';
 import wasm from "vite-plugin-wasm";
 import topLevelAwait from "vite-plugin-top-level-await";
+import dts from 'vite-plugin-dts';
 import { resolve } from 'path';
 
 import { createRequire } from 'module';
@@ -31,7 +32,13 @@ export default defineConfig({
       },
     }),
     wasm(),
-    topLevelAwait()
+    topLevelAwait(),
+    dts({
+      insertTypesEntry: true,
+      compilerOptions: {
+        skipLibCheck: true
+      }
+    })
   ],
   build: {
     lib: {

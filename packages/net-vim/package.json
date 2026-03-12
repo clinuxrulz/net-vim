@@ -1,6 +1,6 @@
 {
   "name": "@net-vim/core",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Vim-compatible editor engine and component library for the web.",
   "type": "module",
   "repository": {
@@ -51,12 +51,13 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "solid-js": "^1.9.11",
-    "@net-vim/virtual-keyboard": "workspace:*"
+    "@net-vim/virtual-keyboard": "workspace:*",
+    "solid-js": "^1.9.11"
   },
   "devDependencies": {
     "typescript": "~5.9.3",
     "vite": "^7.3.1",
+    "vite-plugin-dts": "^4.5.4",
     "vite-plugin-solid": "^2.11.10",
     "vite-plugin-top-level-await": "^1.6.0",
     "vite-plugin-wasm": "^3.5.0"
