@@ -1,6 +1,6 @@
 import type { VimAPI, VimMode, GutterOptions, LineRendererOptions } from './types';
 import { h, Fragment } from './solid-universal-tui';
-import { getConfigFile, writeConfigFile } from './opfs-util';
+import { autoFS } from './opfs-util';
 
 // Define the plugin-specific API that each plugin will receive
 export interface ScopedVimAPI extends VimAPI {
@@ -16,7 +16,7 @@ export interface ScopedVimAPI extends VimAPI {
     readFile: (path: string) => Promise<string | null>;
     writeFile: (path: string, content: string) => Promise<void>;
   };
-  // Configuration access (always OPFS)
+  // Configuration access (uses current active FS, typically OPFS or user provided)
   configFs: {
     readFile: (path: string) => Promise<string | null>;
     writeFile: (path: string, content: string) => Promise<void>;
@@ -147,10 +147,10 @@ export class PluginManager {
         writeFile: (path: string, content: string) => baseApi.getFS().writeFile(path, content),
       },
 
-      // Configuration access (always OPFS)
+      // Configuration access (uses current active FS, typically OPFS or user provided)
       configFs: {
-        readFile: (path: string) => getConfigFile(path),
-        writeFile: (path: string, content: string) => writeConfigFile(path, content),
+        readFile: (path: string) => autoFS.readFile(path),
+        writeFile: (path: string, content: string) => autoFS.writeFile(path, content),
       },
 
       h: h,

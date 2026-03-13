@@ -47,6 +47,10 @@ const memoryFS = {
 
 let fsImplementation: FileSystem | null = null;
 
+export function setFSImplementation(fs: FileSystem) {
+  fsImplementation = fs;
+}
+
 async function getFS() {
   if (fsImplementation) return fsImplementation;
 

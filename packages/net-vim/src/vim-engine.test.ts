@@ -7,18 +7,22 @@ vi.mock('./utils', () => ({
 }));
 
 // Mock opfsFS to avoid actual file system interaction
-vi.mock('./opfs-util', () => ({
-  opfsFS: {
+vi.mock('./opfs-util', () => {
+  const mockFS = {
     readFile: vi.fn(async (path) => {
-      if (path === '/prelude/help.txt') return 'HELP CONTENT';
+      if (path === '/prelude/help.md') return 'HELP CONTENT';
       return null;
     }),
     writeFile: vi.fn(),
     listDirectory: vi.fn(),
     isDirectory: vi.fn(),
-  },
-  PRELUDE_BASE: '/prelude',
-}));
+  };
+  return {
+    opfsFS: mockFS,
+    autoFS: mockFS,
+    PRELUDE_BASE: '/prelude',
+  };
+});
 
 // Mock window.Babel and navigator.clipboard
 globalThis.window = {

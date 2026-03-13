@@ -4,7 +4,7 @@ import { WebGLRenderer } from './WebGLRenderer';
 import { VimEngine } from './vim-engine';
 import { VimUI } from './VimUI';
 import type { VimState } from './types';
-import { getConfigFile, ensureConfigDir, writeConfigFile, PRELUDE_BASE } from './opfs-util';
+import { autoFS, PRELUDE_BASE } from './opfs-util';
 import { VirtualKeyboard } from '@net-vim/virtual-keyboard';
 // @ts-ignore
 import init, { Engine } from './wasm/tui_engine';
@@ -18,7 +18,7 @@ export default {
     description: "User startup configuration"
   },
   setup: async (api) => {
-    api.log("Custom init.ts loaded from OPFS!");
+    api.log("Custom init.ts loaded!");
     
     // Load built-in plugins from the virtual prelude if desired:
     const lineNumbers = await api.configFs.readFile(".config/net-vim/prelude/line-numbers.tsx");
@@ -255,16 +255,16 @@ export default {
       
       // Initialize Plugins
       
-      // 1. Check OPFS for init.ts
+      // 1. Check FS for init.ts
       try {
-        let initSource = await getConfigFile(CONFIG_PATH);
+        let initSource = await autoFS.readFile(CONFIG_PATH);
         if (initSource) {
            await vimInstance.loadPluginFromSource("init.ts", initSource);
         } else {
            console.log("No init.ts found at", CONFIG_PATH);
         }
       } catch (e) {
-        console.error("Error loading init.ts from OPFS:", e);
+        console.error("Error loading init.ts:", e);
       }
       
       // Register CRT toggle command
@@ -274,8 +274,8 @@ export default {
 
       // Command to create a default init.ts if missing
       vimInstance.getAPI().registerCommand('create-init', async () => {
-        await writeConfigFile(CONFIG_PATH, DEFAULT_INIT);
-        console.log("Created default init.ts in OPFS at", CONFIG_PATH);
+        await autoFS.writeFile(CONFIG_PATH, DEFAULT_INIT);
+        console.log("Created default init.ts at", CONFIG_PATH);
       });
 
 
