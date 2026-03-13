@@ -1,4 +1,5 @@
 import { PRELUDE_PLUGINS } from './prelude';
+import type { FileSystem } from './types';
 
 /**
  * Simple utility to interact with the Origin Private File System (OPFS)
@@ -44,7 +45,7 @@ const memoryFS = {
   }
 };
 
-let fsImplementation = null;
+let fsImplementation: FileSystem | null = null;
 
 async function getFS() {
   if (fsImplementation) return fsImplementation;

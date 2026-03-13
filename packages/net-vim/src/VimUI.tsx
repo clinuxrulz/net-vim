@@ -41,7 +41,7 @@ export const VimUI: Component<VimUIProps> = (props) => {
   const commandCursorX = () => getProp(props.commandCursorX) ?? 0;
   const width = () => getProp(props.width) || 80;
   const height = () => getProp(props.height) || 24;
-  const currentFilePath = () => getProp(props.currentFilePath);
+  const currentFilePath = () => getProp(props.currentFilePath) ?? null;
   const isExplorer = () => getProp(props.isExplorer);
   const explorerPath = () => getProp(props.explorerPath);
   const isReadOnly = () => getProp(props.isReadOnly);
