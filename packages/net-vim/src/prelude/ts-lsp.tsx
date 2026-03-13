@@ -1,7 +1,5 @@
 
 // @ts-nocheck
-import workerSource from './ts-lsp-worker.ts?raw';
-
 export default {
   metadata: {
     name: 'ts-lsp',
@@ -13,12 +11,27 @@ export default {
       const Comlink = await import("https://esm.sh/comlink@4.4.1");
       api.log('TS-LSP: Comlink loaded. Loading worker source...');
       
-      if (!workerSource) {
-        api.log("TS-LSP Error: Could not find worker source");
+      let effectiveWorkerSource: string | null = null;
+      
+      // Attempt to load bundled worker source (Vite handles this)
+      try {
+        // @ts-ignore
+        const mod = await import('./ts-lsp-worker.ts?raw');
+        effectiveWorkerSource = mod.default;
+      } catch (e) {
+        // Ignore bundling error if loading dynamically
+      }
+
+      if (!effectiveWorkerSource) {
+        effectiveWorkerSource = await api.configFs.readFile(".config/net-vim/prelude/ts-lsp-worker.ts");
+      }
+      
+      if (!effectiveWorkerSource) {
+        api.log("TS-LSP Error: Could not find worker source (checked bundle and filesystem)");
         return;
       }
       
-      const blob = new Blob([workerSource], { type: 'application/javascript' });
+      const blob = new Blob([effectiveWorkerSource], { type: 'application/javascript' });
       const workerUrl = URL.createObjectURL(blob);
       api.log('TS-LSP: Spawning worker...');
       
