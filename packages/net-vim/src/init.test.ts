@@ -22,7 +22,7 @@ vi.mock('./utils', () => ({
 }));
 
 // Mock navigator.storage.getDirectory for when no custom FS is provided
-(global as any).navigator = {
+(globalThis as any).navigator = {
   storage: {
     getDirectory: vi.fn().mockRejectedValue(new Error('OPFS not available')),
   },

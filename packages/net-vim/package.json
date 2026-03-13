@@ -1,6 +1,6 @@
 {
   "name": "@net-vim/core",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Vim-compatible editor engine and component library for the web.",
   "type": "module",
   "repository": {
