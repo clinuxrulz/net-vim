@@ -46,3 +46,8 @@ Welcome to Net-Vim, a TUI-based editor running in your browser!
 ## Explorer
 - When opening a directory, use `j`/`k` to navigate and `Enter` to open a file or subdirectory.
 - Select `../` to go up one directory.
+
+## Configuration
+- **First Run**: Use `:create-init` to create a default `.config/net-vim/init.ts` in your storage. This file is loaded every time you start Net-Vim.
+- **Customization**: You can edit `.config/net-vim/init.ts` to load plugins, set options, and more.
+- **FS Recovery**: If OPFS is restricted, Net-Vim will fall back to a memory-based file system.
