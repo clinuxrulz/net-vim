@@ -1,5 +1,5 @@
 
-const modules = import.meta.glob('./prelude/*.{ts,tsx}', {
+const modules = import.meta.glob('./prelude/*.{ts,tsx,txt,md}', {
   query: '?raw',
   import: 'default',
   eager: true,

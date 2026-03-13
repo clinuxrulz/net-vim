@@ -56,6 +56,11 @@ export class VimEngine {
     } catch (err) {
       console.error('[VimEngine] Failed to load Babel Standalone:', err);
     }
+
+    // Load help file if it's the default buffer
+    if (this.buffer.length === 4 && this.buffer[0] === 'Welcome to Net-Vim!') {
+      await this.openFile(PRELUDE_BASE + '/help.txt');
+    }
     
     this.isInitialized = true;
   }
@@ -122,6 +127,10 @@ export class VimEngine {
       } catch (err) {
         console.error('Failed to open:', err);
       }
+    };
+
+    this.commands['help'] = async () => {
+      await this.openFile(PRELUDE_BASE + '/help.txt');
     };
   }
 
@@ -223,45 +232,47 @@ export class VimEngine {
         this.contextMenuItems.sort((a, b) => (b.priority || 0) - (a.priority || 0));
         this.onUpdate();
       },
-      insertText: (text) => {
-        if (this.isReadOnly && this.mode !== 'Command') return;
-        
-        if (this.mode === 'Command') {
-          const before = this.commandText.slice(0, this.commandCursorX);
-          const after = this.commandText.slice(this.commandCursorX);
-          const insertion = text.replace(/\r?\n/g, '');
-          this.commandText = before + insertion + after;
-          this.commandCursorX += insertion.length;
-          this.onUpdate();
-          return;
-        }
-
-        const lines = text.split(/\r?\n/);
-        const currentLine = this.buffer[this.cursor.y] || '';
-        const before = currentLine.slice(0, this.cursor.x);
-        const after = currentLine.slice(this.cursor.x);
-
-        if (lines.length === 1) {
-          this.buffer[this.cursor.y] = before + lines[0] + after;
-          this.setCursor(this.cursor.x + lines[0].length, this.cursor.y);
-        } else {
-          this.buffer[this.cursor.y] = before + lines[0];
-          const middle = lines.slice(1, -1);
-          const last = lines[lines.length - 1] + after;
-          
-          const newLines = [this.buffer[this.cursor.y], ...middle, last];
-          this.buffer.splice(this.cursor.y, 1, ...newLines);
-          this.setCursor(lines[lines.length - 1].length, this.cursor.y + lines.length - 1);
-        }
-        this.trigger('TextChanged');
-        this.onUpdate();
-      },
+      insertText: (text) => this.insertText(text),
       rerender: () => this.onUpdate(),
       setFS: (fs) => { this.fs = fs; this.trigger('FSChanged'); this.onUpdate(); },
       getFS: () => this.fs,
       resetFS: () => { this.fs = opfsFS; this.trigger('FSChanged'); this.onUpdate(); },
       babel: (window as any).Babel,
     };
+  }
+
+  private insertText(text: string) {
+    if (this.isReadOnly && this.mode !== 'Command') return;
+    
+    if (this.mode === 'Command') {
+      const before = this.commandText.slice(0, this.commandCursorX);
+      const after = this.commandText.slice(this.commandCursorX);
+      const insertion = text.replace(/\r?\n/g, '');
+      this.commandText = before + insertion + after;
+      this.commandCursorX += insertion.length;
+      this.onUpdate();
+      return;
+    }
+
+    const lines = text.split(/\r?\n/);
+    const currentLine = this.buffer[this.cursor.y] || '';
+    const before = currentLine.slice(0, this.cursor.x);
+    const after = currentLine.slice(this.cursor.x);
+
+    if (lines.length === 1) {
+      this.buffer[this.cursor.y] = before + lines[0] + after;
+      this.setCursor(this.cursor.x + lines[0].length, this.cursor.y);
+    } else {
+      this.buffer[this.cursor.y] = before + lines[0];
+      const middle = lines.slice(1, -1);
+      const last = lines[lines.length - 1] + after;
+      
+      const newLines = [this.buffer[this.cursor.y], ...middle, last];
+      this.buffer.splice(this.cursor.y, 1, ...newLines);
+      this.setCursor(lines[lines.length - 1].length, this.cursor.y + lines.length - 1);
+    }
+    this.trigger('TextChanged');
+    this.onUpdate();
   }
 
   public hideCompletions() {
@@ -487,6 +498,56 @@ export class VimEngine {
     this.scrollCursorIntoView();
   }
 
+  private async putFromClipboard(after: boolean = true) {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) return;
+
+      if (this.mode === 'Visual') {
+        this.deleteSelection();
+        this.insertText(text);
+        this.mode = 'Normal';
+        this.visualStart = null;
+      } else {
+        // Normal mode
+        const endsWithNewline = text.endsWith('\n');
+        if (endsWithNewline) {
+          // Put below/above line
+          const targetLine = after ? this.cursor.y + 1 : this.cursor.y;
+          const lines = text.split('\n');
+          if (lines[lines.length - 1] === '') lines.pop();
+          this.buffer.splice(targetLine, 0, ...lines);
+          this.setCursor(0, targetLine);
+        } else {
+          // Put after/before cursor
+          const currentLine = this.buffer[this.cursor.y] || '';
+          const insertPos = after ? Math.min(currentLine.length, this.cursor.x + 1) : this.cursor.x;
+          
+          const lines = text.split('\n');
+          const before = currentLine.slice(0, insertPos);
+          const afterPart = currentLine.slice(insertPos);
+
+          if (lines.length === 1) {
+            this.buffer[this.cursor.y] = before + lines[0] + afterPart;
+            this.setCursor(insertPos + lines[0].length - 1, this.cursor.y);
+          } else {
+            this.buffer[this.cursor.y] = before + lines[0];
+            const middle = lines.slice(1, -1);
+            const last = lines[lines.length - 1] + afterPart;
+            const newLines = [this.buffer[this.cursor.y], ...middle, last];
+            this.buffer.splice(this.cursor.y, 1, ...newLines);
+            this.setCursor(lines[lines.length - 1].length - 1, this.cursor.y + lines.length - 1);
+          }
+        }
+      }
+      this.trigger('TextChanged');
+      this.onUpdate();
+    } catch (err) {
+      this.showMessage('Failed to read from clipboard');
+      console.error(err);
+    }
+  }
+
   private handleNormalMode(key: string, ctrl: boolean) {
     if (this.pendingSequence === 'Ctrl-w') {
       this.pendingSequence = '';
@@ -614,6 +675,8 @@ export class VimEngine {
       case 'End': this.setCursor(this.buffer[this.cursor.y]?.length || 0, this.cursor.y); break;
       case 'PageUp': this.setCursor(this.cursor.x, this.cursor.y - this.viewportHeight); break;
       case 'PageDown': this.setCursor(this.cursor.x, this.cursor.y + this.viewportHeight); break;
+      case 'p': this.putFromClipboard(true); break;
+      case 'P': this.putFromClipboard(false); break;
       case 'x': // delete character under cursor
         const line = this.buffer[this.cursor.y];
         if (line && line.length > 0) {
@@ -689,6 +752,9 @@ export class VimEngine {
       case 'v':
         this.mode = 'Normal';
         this.visualStart = null;
+        break;
+      case 'p':
+        this.putFromClipboard(true);
         break;
       case 'd':
       case 'x':

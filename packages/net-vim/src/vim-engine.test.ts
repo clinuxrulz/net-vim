@@ -9,7 +9,10 @@ vi.mock('./utils', () => ({
 // Mock opfsFS to avoid actual file system interaction
 vi.mock('./opfs-util', () => ({
   opfsFS: {
-    readFile: vi.fn(),
+    readFile: vi.fn(async (path) => {
+      if (path === '/prelude/help.txt') return 'HELP CONTENT';
+      return null;
+    }),
     writeFile: vi.fn(),
     listDirectory: vi.fn(),
     isDirectory: vi.fn(),
@@ -28,6 +31,7 @@ globalThis.window = {
 Object.defineProperty(navigator, 'clipboard', {
   value: {
     writeText: vi.fn(),
+    readText: vi.fn(),
   },
 });
 
@@ -143,5 +147,50 @@ describe('VimEngine', () => {
     engine.handleKey('x');
     expect(engine.getState().mode).toBe('Normal');
     expect(engine.getState().buffer[0]).toBe('come to Net-Vim!');
+  });
+
+  it('should put text from clipboard in Normal mode with p', async () => {
+    (navigator.clipboard.readText as any).mockResolvedValue('Hello');
+    
+    // Welcome to Net-Vim!
+    engine.handleKey('p');
+    
+    // Wait for async operation
+    await vi.waitFor(() => {
+      expect(engine.getState().buffer[0]).toBe('WHelloelcome to Net-Vim!');
+    });
+  });
+
+  it('should replace selection in Visual mode with p', async () => {
+    (navigator.clipboard.readText as any).mockResolvedValue('PASTE');
+    
+    // 'Welcome to Net-Vim!'
+    engine.handleKey('v');
+    engine.handleKey('l'); 
+    engine.handleKey('l'); 
+    engine.handleKey('l'); 
+    // Selected 'Welc' (inclusive)
+    
+    engine.handleKey('p');
+    
+    // Wait for async operation
+    await vi.waitFor(() => {
+      expect(engine.getState().buffer[0]).toBe('PASTEome to Net-Vim!');
+      expect(engine.getState().mode).toBe('Normal');
+    });
+  });
+
+  it('should open help file when :help is executed', async () => {
+    engine.handleKey(':');
+    engine.handleKey('h');
+    engine.handleKey('e');
+    engine.handleKey('l');
+    engine.handleKey('p');
+    engine.handleKey('Enter');
+    
+    await vi.waitFor(() => {
+      expect(engine.getState().buffer[0]).toBe('HELP CONTENT');
+      expect(engine.getState().isReadOnly).toBe(true);
+    });
   });
 });
