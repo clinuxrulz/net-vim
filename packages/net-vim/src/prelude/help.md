@@ -14,6 +14,7 @@ Welcome to Net-Vim, a TUI-based editor running in your browser!
 - `PageUp` / `PageDown`: Scroll up/down by a page.
 - `Ctrl-u` / `Ctrl-d`: Scroll up/down by half a page.
 - `Ctrl-y` / `Ctrl-e`: Scroll up/down by one line.
+- `Ctrl + Mouse Wheel`: Zoom in/out.
 
 ## Editing (Normal)
 - `i`: Enter Insert Mode at cursor.
@@ -34,6 +35,7 @@ Welcome to Net-Vim, a TUI-based editor running in your browser!
 - `:set wrap`: Enable line wrapping.
 - `:set nowrap`: Disable line wrapping.
 - `:set wrap!`: Toggle line wrapping.
+- `:crt`: Toggle CRT effect (Easter Egg).
 
 ## LSP & Diagnostics (Normal)
 - `leader d` or `Ctrl-w d`: Show diagnostics for current line.
