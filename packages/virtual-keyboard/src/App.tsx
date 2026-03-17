@@ -109,6 +109,16 @@ const VirtualKeyboard: Component<VirtualKeyboardProps> = (props) => {
     </svg>
   );
 
+  const CollapseIcon = () => (
+    <svg viewBox="0 0 24 24" style={{
+      width: '20px', height: '20px', fill: 'none',
+      stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+      'box-sizing': 'border-box'
+    }}>
+      <path d="M7 10l5 5 5-5" />
+    </svg>
+  );
+
   const handleKeyPress = (key: string, isRepeat: boolean = false) => {
     if (key === 'shift') {
       setIsShift(!isShift());
@@ -170,10 +180,10 @@ const VirtualKeyboard: Component<VirtualKeyboardProps> = (props) => {
           display: 'flex',
           'justify-content': 'center',
           'align-items': 'center',
-          'font-size': '0.9rem',
+          'font-size': '0.85rem',
           'font-weight': '500',
           cursor: 'pointer',
-          height: '34px',
+          height: '28px',
           'user-select': 'none',
           'box-sizing': 'border-box',
           padding: '0',
@@ -191,12 +201,12 @@ const VirtualKeyboard: Component<VirtualKeyboardProps> = (props) => {
       background: '#2c2c2c',
       color: '#fff',
       border: 'none',
-      'border-radius': '8px',
-      height: '48px',
+      'border-radius': '6px',
+      height: '38px',
       display: 'flex',
       'justify-content': 'center',
       'align-items': 'center',
-      'font-size': '1.2rem',
+      'font-size': '1.1rem',
       'font-weight': '400',
       cursor: 'pointer',
       flex: '1 1 0',
@@ -257,30 +267,55 @@ const VirtualKeyboard: Component<VirtualKeyboardProps> = (props) => {
   return (
     <div style={{
       'background-color': '#000',
-      padding: '6px 4px',
+      padding: '2px 4px',
       width: '100%',
       'max-width': '100vw',
       'box-sizing': 'border-box',
       display: 'flex',
       'flex-direction': 'column',
-      gap: '6px',
+      gap: '4px',
       'user-select': 'none',
-      'padding-bottom': 'calc(env(safe-area-inset-bottom, 0px) + 20px)',
+      'padding-bottom': 'calc(env(safe-area-inset-bottom, 0px) + 8px)',
       'overflow': 'hidden',
       margin: '0',
       position: 'relative'
     }}>
       <div style={{
         display: 'flex',
+        'justify-content': 'center',
+        'align-items': 'center',
+        height: '20px',
+        width: '100%',
+        'margin-bottom': '-2px'
+      }}>
+        <button 
+          onPointerDown={(e) => { e.preventDefault(); props.onCollapse?.(); }}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: '#666',
+            width: '60px',
+            height: '100%',
+            display: 'flex',
+            'align-items': 'center',
+            'justify-content': 'center',
+            cursor: 'pointer'
+          }}
+        >
+          <CollapseIcon />
+        </button>
+      </div>
+      <div style={{
+        display: 'flex',
         'flex-direction': 'column',
         gap: '1px',
         'background-color': '#000',
-        'padding-bottom': '8px',
+        'padding-bottom': '4px',
         'box-sizing': 'border-box'
       }}>
         <For each={extraRows}>
           {(row) => (
-            <div style={{ display: 'flex', gap: '1px', height: '34px', 'box-sizing': 'border-box', width: '100%' }}>
+            <div style={{ display: 'flex', gap: '1px', height: '28px', 'box-sizing': 'border-box', width: '100%' }}>
               <For each={row}>
                 {(key) => renderExtraKey(key)}
               </For>
@@ -292,7 +327,7 @@ const VirtualKeyboard: Component<VirtualKeyboardProps> = (props) => {
         {(row, index) => (
           <div style={{
             display: 'flex',
-            gap: '5px',
+            gap: '4px',
             'justify-content': 'center',
             width: '100%',
             padding: index() === 2 ? '0 5%' : '0',
