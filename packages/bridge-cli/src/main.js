@@ -128,3 +128,30 @@ server.listen(port, '0.0.0.0', () => {
   console.log(`:ed bridge ${port} ${key}`);
   console.log("====================================================\n");
 });
+
+let isShuttingDown = false;
+
+const handleExit = (signal) => {
+  if (isShuttingDown) {
+    console.log(`\nReceived ${signal} again. Exiting immediately...`);
+    process.exit(1);
+  }
+  isShuttingDown = true;
+  console.log(`\nReceived ${signal}. Shutting down bridge server...`);
+  
+  // Set a timeout to force exit if it takes too long
+  const forceExitTimeout = setTimeout(() => {
+    console.log('Shutdown timed out. Exiting immediately...');
+    process.exit(1);
+  }, 3000);
+  forceExitTimeout.unref();
+
+  server.close(() => {
+    clearTimeout(forceExitTimeout);
+    console.log('Bridge server closed.');
+    process.exit(0);
+  });
+};
+
+process.on('SIGINT', () => handleExit('SIGINT'));
+process.on('SIGTERM', () => handleExit('SIGTERM'));
