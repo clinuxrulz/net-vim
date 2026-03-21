@@ -5,6 +5,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { URL } from 'url';
 import crypto from 'crypto';
+import qrcode from 'qrcode-terminal';
 
 /**
  * Net-Vim Bridge CLI (Node.js version)
@@ -124,6 +125,8 @@ server.listen(port, '0.0.0.0', () => {
   console.log(`Bridge server (Node.js) running on http://0.0.0.0:${port}`);
   console.log(`Root Directory: ${rootDir}`);
   console.log(`Bridge Security Key: ${key}`);
+  console.log("\nScan to copy the Security Key:");
+  qrcode.generate(key, { small: true });
   console.log("\nTo connect from Net-Vim, use command:");
   console.log(`:ed bridge ${port} ${key}`);
   console.log("====================================================\n");

@@ -1,6 +1,6 @@
 {
   "name": "@net-vim/bridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A cross-platform Node.js bridge to expose a local file system for net-vim.",
   "type": "module",
   "bin": {
@@ -20,5 +20,8 @@
   },
   "scripts": {
     "start": "node ./src/main.js"
+  },
+  "dependencies": {
+    "qrcode-terminal": "^0.12.0"
   }
 }
