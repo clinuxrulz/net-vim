@@ -222,6 +222,7 @@ export class VimEngine {
       executeCommand: (cmd) => this.executeCommand(cmd),
       loadPluginFromSource: (name, source) => this.loadPluginFromSource(name, source),
       loadPlugin: (plugin) => this.loadPlugin(plugin),
+      getLoadedPlugins: () => this.pluginManager.getLoadedPlugins(),
       registerGutter: (options: GutterOptions) => {
         console.log(`[VimEngine] Registering gutter: ${options.name}`, options);
         this.gutters.push(options);

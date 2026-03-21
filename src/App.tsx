@@ -49,7 +49,7 @@ export default function App() {
         overflow: 'hidden' 
       }}
     >
-      <VimEditor ref={setEngine} />
+      <VimEditor ref={setEngine} autoCreateInit={true}/>
     </div>
   );
 }

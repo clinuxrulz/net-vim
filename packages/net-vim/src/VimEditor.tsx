@@ -9,9 +9,9 @@ import { VirtualKeyboard } from '@net-vim/virtual-keyboard';
 // @ts-ignore
 import init, { Engine } from './wasm/tui_engine';
 
-const CONFIG_PATH = '.config/net-vim/init.ts';
+export const CONFIG_PATH = '.config/net-vim/init.ts';
 
-const DEFAULT_INIT = `
+export const DEFAULT_INIT = `
 export default {
   metadata: {
     name: "user-init",
@@ -73,35 +73,7 @@ const TYPE_PARSER_MAP = new Map([
 // Character size for grid calculation - now reactive signals
 const [charSize, setCharSize] = createSignal({ width: 10, height: 20 });
 
-// Sample TypeScript Plugin Source
-const helloPlugin = `
-export default {
-  metadata: {
-    name: "hello-plugin",
-    description: "A simple plugin that greets you and tracks mode changes."
-  },
-  setup: (api) => {
-    api.log("Hello from the Babel-transpiled plugin!");
-    
-    // Register a custom command
-    api.registerCommand("hello", (args) => {
-      api.log("Command :hello executed with args:", args);
-      // In a real TUI we'd probably show a message in the UI instead of alert
-      console.log("HELLO FROM PLUGIN!", args);
-    });
-
-    // Listen for mode changes
-    api.on("ModeChanged", (data) => {
-      api.log("Mode changed from " + data.from + " to " + data.to);
-      const count = api.storage.get("modeChanges") || 0;
-      api.storage.set("modeChanges", count + 1);
-      api.log("Total mode changes: " + (count + 1));
-    });
-  }
-};
-`;
-
-export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: VimEngine) => void }) {
+export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: VimEngine) => void, autoCreateInit?: boolean }) {
   const [gridDim, setGridDim] = createSignal({ width: 80, height: 24 });
   const [isMobile, setIsMobile] = createSignal(false);
   const [showKeyboard, setShowKeyboard] = createSignal(false);
@@ -224,16 +196,23 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
 
       // Initialize Plugins
       
-      // 1. Check FS for init.ts
-      try {
-        let initSource = await autoFS.readFile(CONFIG_PATH);
-        if (initSource) {
-           await vimInstance.loadPluginFromSource("init.ts", initSource);
-        } else {
-           console.log("No init.ts found at", CONFIG_PATH);
+      // 1. Check FS for init.ts (if not already loaded by initNetVim)
+      if (!vimInstance.getAPI().getLoadedPlugins().some(p => p.name === 'user-init' || p.name === 'init.ts')) {
+        try {
+          let initSource = await autoFS.readFile(CONFIG_PATH);
+          
+          if (!initSource && props.autoCreateInit) {
+            console.log("[VimEditor] Auto-creating default init.ts at", CONFIG_PATH);
+            await autoFS.writeFile(CONFIG_PATH, DEFAULT_INIT);
+            initSource = await autoFS.readFile(CONFIG_PATH);
+          }
+
+          if (initSource) {
+            await vimInstance.loadPluginFromSource("init.ts", initSource);
+          }
+        } catch (e) {
+          console.error("Error loading init.ts:", e);
         }
-      } catch (e) {
-        console.error("Error loading init.ts:", e);
       }
       
       // Register CRT toggle command

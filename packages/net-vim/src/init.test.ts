@@ -48,4 +48,25 @@ describe('initNetVim custom FS', () => {
     expect(content).toBe('test content');
     expect(customFS.readFile).toHaveBeenCalledWith('test.txt');
   });
+
+  it('should auto-create init.ts if autoCreateInit is true', async () => {
+    const files = new Map<string, string>();
+    const customFS = {
+      readFile: vi.fn().mockImplementation(async (path) => {
+        return files.get(path) || null;
+      }),
+      writeFile: vi.fn().mockImplementation(async (path, content) => {
+        files.set(path, content);
+      }),
+      listDirectory: vi.fn().mockResolvedValue([]),
+      isDirectory: vi.fn().mockResolvedValue(false),
+    };
+
+    const container = document.createElement('div');
+    await initNetVim(container, { fileSystem: customFS, autoCreateInit: true });
+
+    const initContent = files.get('.config/net-vim/init.ts');
+    expect(initContent).toBeDefined();
+    expect(initContent).toContain('Custom init.ts loaded!');
+  });
 });
