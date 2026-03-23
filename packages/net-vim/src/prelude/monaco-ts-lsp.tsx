@@ -48,6 +48,8 @@ export default {
     };
 
     const getTypeScriptWorker = async (absolutePath: string) => {
+      const buffer = api.getBuffer().join('\n');
+      getOrCreateModel(absolutePath, buffer);
       const getWorker = await monaco.languages.typescript.getTypeScriptWorker();
       const worker = await getWorker(monaco.Uri.parse(getFileUri(absolutePath)));
       return worker;
@@ -152,10 +154,7 @@ export default {
       if (!monaco) return;
       
       try {
-        const buffer = api.getBuffer().join('\n');
         const fileUri = getFileUri(absolutePath);
-        getOrCreateModel(absolutePath, buffer);
-        
         const worker = await getTypeScriptWorker(absolutePath);
         
         const semantic = await worker.getSemanticDiagnostics(fileUri);
@@ -193,20 +192,18 @@ export default {
       if (!monaco) return [];
       
       try {
-        const buffer = api.getBuffer().join('\n');
         const fileUri = getFileUri(absolutePath);
-        getOrCreateModel(absolutePath, buffer);
         const worker = await getTypeScriptWorker(absolutePath);
-        const completions = await worker.getCompletionsAtPosition(fileUri, position, {});
+        const completions = await worker.getCompletionsAtPosition(fileUri, position);
         
         if (!completions) return [];
         
-        return completions.map((item: any) => ({
-          label: item.label,
+        return completions.entries.map((item: any) => ({
+          label: item.name,
           kind: item.kind,
-          detail: item.detail,
+          detail: item.kindModifiers,
           documentation: item.documentation?.map((d: any) => d.text).join(''),
-          insertText: item.insertText || item.label,
+          insertText: item.insertText || item.name,
         }));
       } catch (err: any) {
         console.error('Monaco-TS-LSP Completions:', err);
@@ -218,16 +215,19 @@ export default {
       if (!monaco) return null;
       
       try {
-        const buffer = api.getBuffer().join('\n');
         const fileUri = getFileUri(absolutePath);
-        getOrCreateModel(absolutePath, buffer);
         const worker = await getTypeScriptWorker(absolutePath);
-        const hover = await worker.getHoverAtPosition(fileUri, position);
+        const hover = await worker.getQuickInfoAtPosition(fileUri, position);
         
-        if (hover && hover.range) {
+        if (hover && hover.textSpan) {
+          const displayParts = hover.displayParts || [];
+          const docs = hover.documentation || [];
           return {
-            display: hover.contents.map((c: any) => typeof c === 'string' ? c : c.value).join('\n'),
-            range: hover.range
+            display: [...displayParts, ...docs].map((d: any) => d.text).join(''),
+            range: {
+              start: hover.textSpan.start,
+              end: hover.textSpan.start + hover.textSpan.length
+            }
           };
         }
         return null;
@@ -241,17 +241,15 @@ export default {
       if (!monaco) return null;
       
       try {
-        const buffer = api.getBuffer().join('\n');
         const fileUri = getFileUri(absolutePath);
-        getOrCreateModel(absolutePath, buffer);
         const worker = await getTypeScriptWorker(absolutePath);
         const definitions = await worker.getDefinitionAtPosition(fileUri, position);
         
         if (definitions && definitions.length > 0) {
           const def = definitions[0];
           return {
-            uri: def.uri,
-            range: def.range
+            uri: def.file,
+            range: def
           };
         }
         return null;
