@@ -70,6 +70,10 @@ The editor defaults to the WebGL renderer. Switch to the DOM renderer (or back) 
 
 Using `:renderer` with no argument toggles between the two renderers.
 
+### Native/system virtual keyboard
+
+On mobile, type `:syskb` (or `:syskb` again to close it) to summon the native OS virtual keyboard via a hidden contenteditable, keeping the navigation row (arrows, ESC, TAB, CTRL, ALT, etc.) above it. The editor view shrinks automatically to stay above the keyboard. Tapping the buffer still opens the built-in custom virtual keyboard as before.
+
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.

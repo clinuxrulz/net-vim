@@ -1,10 +1,12 @@
-import { For, type Component, createSignal } from 'solid-js';
+import { For, Show, type Component, createSignal } from 'solid-js';
 
 export type KeyboardMode = 'alpha' | 'sym1' | 'sym2';
 
 export interface VirtualKeyboardProps {
   onKeyPress?: (key: string, mods: { ctrl: boolean; alt: boolean; shift: boolean }) => void;
   onCollapse?: () => void;
+  /** When true, render only the collapse handle and navigation rows (no letter/symbol layouts). */
+  navOnly?: boolean;
 }
 
 const VirtualKeyboard: Component<VirtualKeyboardProps> = (props) => {
@@ -339,7 +341,8 @@ const VirtualKeyboard: Component<VirtualKeyboardProps> = (props) => {
           )}
         </For>
       </div>
-      <For each={layouts[mode()]}>
+      <Show when={!props.navOnly}>
+        <For each={layouts[mode()]}>
         {(row, index) => (
           <div style={{
             display: 'flex',
@@ -355,6 +358,7 @@ const VirtualKeyboard: Component<VirtualKeyboardProps> = (props) => {
           </div>
         )}
       </For>
+      </Show>
     </div>
   );
 };

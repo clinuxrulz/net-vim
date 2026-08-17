@@ -83,6 +83,7 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
   const [gridDim, setGridDim] = createSignal({ width: 80, height: 24 });
   const [isMobile, setIsMobile] = createSignal(false);
   const [showKeyboard, setShowKeyboard] = createSignal(false);
+  const [sysKbOpen, setSysKbOpen] = createSignal(false);
   const [crtEnabled, setCrtEnabled] = createSignal(false);
   const [rendererMode, setRendererMode] = createSignal<'webgl' | 'dom'>('webgl');
   const [contextMenu, setContextMenu] = createSignal<{ x: number, y: number, items: any[] } | null>(null);
@@ -130,6 +131,16 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
   let containerRef: HTMLDivElement | undefined;
   let rustEngine: Engine | null = null;
   let vimInstance: VimEngine | null = props.engine || null;
+
+  // Hidden contenteditable used to summon the native/system virtual keyboard
+  let sysKbInputRef: HTMLDivElement | undefined;
+  let sysKbComposing = false;
+  // Set when a keydown was handled for a press, so a platform that still fires
+  // `beforeinput` afterwards can't double-dispatch the same key.
+  let sysKbPendingKeyDown = false;
+  // Running composed text so autocomplete/IME letters can be applied to vim
+  // incrementally (CodeMirror-style), instead of only on compositionend.
+  let sysKbLastComposed = '';
 
   // Variables for touch interaction (pinch-to-zoom and scrolling)
   let initialPinchDistance = 0;
@@ -233,6 +244,15 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
         if (target === 'dom') setRendererMode('dom');
         else if (target === 'webgl') setRendererMode('webgl');
         else setRendererMode(rendererMode() === 'webgl' ? 'dom' : 'webgl');
+      });
+
+      // Register toggle for the native/system virtual keyboard (:syskb)
+      vimInstance.getAPI().registerCommand('syskb', () => {
+        if (sysKbOpen()) {
+          closeSysKb();
+        } else {
+          openSysKb();
+        }
       });
 
       // Command to create a default init.ts if missing
@@ -433,6 +453,213 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
   };
   (window as any).processKey = processKey;
 
+  // Native/system virtual keyboard (hidden contenteditable technique,
+  // similar to CodeMirror's mobile input handling).
+  const dispatchSysKbData = (data: string) => {
+    if (!data) return;
+    for (const ch of data) {
+      if (ch === '\n' || ch === '\r') {
+        processKey('Enter');
+      } else {
+        processKey(ch);
+      }
+    }
+  };
+
+  const resetSysKbInput = () => {
+    const el = sysKbInputRef;
+    if (!el) return;
+    el.textContent = '';
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    } catch (e) {
+      // no-op
+    }
+  };
+
+  // CodeMirror treats the contenteditable DOM as the source of truth during a
+  // composition: each browser mutation (append via autocomplete, mid-word
+  // backspace, or a re-written word) is reflected here as an insert or delete.
+  // Diff the current composition against the last one and mirror it into vim
+  // so the buffer stays in sync even before the composition is committed.
+  const syncSysKbComposition = (cur: string) => {
+    const prev = sysKbLastComposed;
+    if (cur === prev) return;
+
+    // Longest common prefix: everything after it is either removed or added.
+    let p = 0;
+    const max = Math.min(prev.length, cur.length);
+    while (p < max && prev[p] === cur[p]) p++;
+
+    if (p < prev.length) {
+      // Characters were dropped (mid-composition backspace / word rewrite).
+      for (let i = p; i < prev.length; i++) processKey('Backspace');
+    }
+    if (p < cur.length) {
+      dispatchSysKbData(cur.slice(p));
+    }
+
+    sysKbLastComposed = cur;
+  };
+
+  const handleSysKbBeforeInput = (e: InputEvent) => {
+    // Composition is applied from the `input` event via the textContent diff
+    // above, which is authoritative (e.data varies across platforms). Do NOT
+    // preventDefault or clear the element here — the IME must stay alive.
+    if (sysKbComposing) return;
+
+    // The key was already dispatched from raw `keydown`; some platforms still
+    // fire beforeinput afterwards (autocomplete/prediction), so swallow it.
+    if (sysKbPendingKeyDown) {
+      sysKbPendingKeyDown = false;
+      return;
+    }
+
+    const inputType = e.inputType || '';
+    if (inputType.startsWith('insertText') || inputType.startsWith('insertFromPaste') || inputType.startsWith('insertFromYank')) {
+      e.preventDefault();
+      dispatchSysKbData(e.data || '');
+      resetSysKbInput();
+    } else if (inputType === 'insertLineBreak' || inputType === 'insertParagraph' || inputType === 'insertNewline') {
+      e.preventDefault();
+      processKey('Enter');
+      resetSysKbInput();
+    } else if (inputType === 'deleteContentBackward') {
+      e.preventDefault();
+      processKey('Backspace');
+      resetSysKbInput();
+    } else if (inputType === 'deleteContentForward') {
+      e.preventDefault();
+      processKey('Delete');
+      resetSysKbInput();
+    }
+  };
+
+  const handleSysKbKeyDown = (e: KeyboardEvent) => {
+    // During IME composition, let the input method drive input. Also skip
+    // keys where Android only reports keyCode 229 (IME/autocomplete active).
+    if (sysKbComposing || e.isComposing || e.keyCode === 229) return;
+
+    const special = ['Escape', 'Tab', 'Enter', 'Backspace', 'Delete',
+      'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'];
+
+    if (special.includes(e.key)) {
+      sysKbPendingKeyDown = true;
+      e.preventDefault();
+      processKey(e.key);
+      return;
+    }
+
+    // Printable characters: dispatch each keystroke immediately and cancel
+    // the default so the OS keyboard's autocomplete/autocorrect cannot group
+    // (or swallow) individual keystrokes — essential for vim's modes.
+    if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      sysKbPendingKeyDown = true;
+      e.preventDefault();
+      processKey(e.key);
+    }
+  };
+
+  const handleSysKbCompositionStart = () => {
+    sysKbComposing = true;
+    sysKbLastComposed = '';
+    sysKbPendingKeyDown = false;
+  };
+
+  const handleSysKbInput = () => {
+    if (sysKbComposing) {
+      // The browser has just mutated the composition; mirror that change into
+      // vim (append or backspace) so mid-composition edits stay in sync.
+      const el = sysKbInputRef;
+      if (el) {
+        syncSysKbComposition(el.textContent || '');
+        sysKbPendingKeyDown = false;
+      }
+      return;
+    }
+    sysKbPendingKeyDown = false;
+    resetSysKbInput();
+  };
+
+  const handleSysKbCompositionEnd = (e: CompositionEvent) => {
+    sysKbComposing = false;
+    // The letters (and any mid-composition backspaces) were already mirrored
+    // incrementally via the `input` diff; only flush a tail we haven't seen
+    // (e.g. a word committed straight to its final form).
+    const finalText = e.data ?? sysKbInputRef?.textContent ?? '';
+    if (finalText.length > sysKbLastComposed.length && finalText.startsWith(sysKbLastComposed)) {
+      dispatchSysKbData(finalText.slice(sysKbLastComposed.length));
+    }
+    sysKbLastComposed = '';
+    sysKbPendingKeyDown = false;
+    resetSysKbInput();
+  };
+
+  const handleSysKbBlur = () => {
+    if (!sysKbOpen()) return;
+    // A tap on a nav button (or elsewhere) must not dismiss the native
+    // keyboard — refocus so typing continues uninterrupted.
+    requestAnimationFrame(() => {
+      if (sysKbOpen()) {
+        sysKbInputRef?.focus();
+      }
+    });
+  };
+
+  const positionSysKbInput = () => {
+    const el = sysKbInputRef;
+    const cRef = containerRef;
+    if (!el || !cRef) return;
+    const cell = charSize();
+    const rect = cRef.getBoundingClientRect();
+    const left = Math.max(0, Math.min(visualCursor().x * cell.width, rect.width - cell.width));
+    const top = Math.max(0, Math.min(visualCursor().y * cell.height, rect.height - cell.height));
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+    el.style.width = `${Math.max(10, cell.width)}px`;
+    el.style.height = `${Math.max(10, cell.height)}px`;
+  };
+
+  const openSysKb = () => {
+    sysKbComposing = false;
+    sysKbPendingKeyDown = false;
+    sysKbLastComposed = '';
+    setSysKbOpen(true);
+    if (showKeyboard()) {
+      // Close the custom keyboard and replace its history entry (it is on
+      // top), so one back press cleanly closes the system keyboard.
+      setShowKeyboard(false);
+      window.history.replaceState({ sysKb: true }, '');
+    } else {
+      window.history.pushState({ sysKb: true }, '');
+    }
+    requestAnimationFrame(() => {
+      positionSysKbInput();
+      sysKbInputRef?.focus();
+    });
+  };
+
+  const closeSysKb = () => {
+    setSysKbOpen(false);
+    sysKbInputRef?.blur();
+    if (window.history.state?.sysKb) {
+      window.history.back();
+    }
+  };
+
+  // Keep the hidden input positioned on the vim caret while it's open.
+  createEffect(() => {
+    void sysKbOpen();
+    void visualCursor();
+    void charSize();
+    positionSysKbInput();
+  });
+
   // Keyboard listeners for Desktop
   const handleKeyDown = (e: KeyboardEvent) => {
     if (isMobile()) return;
@@ -501,7 +728,9 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
 
   // Handle Android back button to close keyboard
   const handlePopState = (e: PopStateEvent) => {
-    if (showKeyboard()) {
+    if (sysKbOpen()) {
+      setSysKbOpen(false);
+    } else if (showKeyboard()) {
       setShowKeyboard(false);
     }
   };
@@ -697,6 +926,11 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
   const handlePointerUp = (e: PointerEvent) => {
     const duration = Date.now() - lastPointerDownTime;
     if (isMobile() && duration < 300) {
+      // Native/system keyboard takes precedence: keep it focused.
+      if (sysKbOpen()) {
+        sysKbInputRef?.focus();
+        return;
+      }
       if (!showKeyboard()) {
         setShowKeyboard(true);
         window.history.pushState({ keyboard: true }, '');
@@ -793,11 +1027,51 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
             }}
           />
         </Show>
+
+        {/* Hidden contenteditable that summons the native/system keyboard */}
+        <Show when={sysKbOpen()}>
+          <div
+            ref={sysKbInputRef}
+            contenteditable="true"
+            inputmode="text"
+            autocapitalize="none"
+            autocomplete="off"
+            autocorrect="off"
+            spellcheck={false}
+            enterkeyhint="enter"
+            aria-hidden="true"
+            onBeforeInput={handleSysKbBeforeInput}
+            onInput={handleSysKbInput}
+            onKeyDown={handleSysKbKeyDown}
+            onBlur={handleSysKbBlur}
+            onCompositionStart={handleSysKbCompositionStart}
+            onCompositionEnd={handleSysKbCompositionEnd}
+            style={{
+              position: 'absolute',
+              left: '0px',
+              top: '0px',
+              width: '10px',
+              height: '10px',
+              opacity: '0',
+              background: 'transparent',
+              border: 'none',
+              outline: 'none',
+              'caret-color': 'transparent',
+              color: 'transparent',
+              overflow: 'hidden',
+              'white-space': 'pre',
+              'font-size': '1px',
+              'pointer-events': 'none',
+              'z-index': 99,
+              '-webkit-user-modify': 'read-write-plaintext-only',
+            }}
+          />
+        </Show>
       </div>
 
       <div style={{ width: '100%', 'margin-top': '0px', overflow: 'hidden' }}>
         <Show when={isMobile()}>
-          <Show when={showKeyboard()}>
+          <Show when={showKeyboard() && !sysKbOpen()}>
             <div style={{ width: '100%', display: 'flex', 'justify-content': 'center' }}>
               <VirtualKeyboard 
                 onKeyPress={(key, mods) => (window as any).processKey?.(key, mods.ctrl)} 
@@ -807,6 +1081,15 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
                     window.history.back();
                   }
                 }}
+              />
+            </div>
+          </Show>
+          <Show when={sysKbOpen()}>
+            <div style={{ width: '100%', display: 'flex', 'justify-content': 'center' }}>
+              <VirtualKeyboard 
+                navOnly
+                onKeyPress={(key, mods) => (window as any).processKey?.(key, mods.ctrl)} 
+                onCollapse={() => closeSysKb()}
               />
             </div>
           </Show>
