@@ -10,7 +10,7 @@ Net-Vim is a web-based Vim-compatible editor engine and component library. It pr
 
 - Vim-compatible modal editing.
 - Framework-agnostic initialization.
-- WebGL-accelerated rendering.
+- WebGL-accelerated rendering, with an alternative DOM renderer.
 - Plugin system with TypeScript support.
 - File system abstraction using OPFS (Origin Private File System).
 - Integrated virtual keyboard for mobile devices.
@@ -58,6 +58,17 @@ function App() {
 ## Configuration
 
 Net-Vim looks for an initialization script at `.config/net-vim/init.ts` within the OPFS. You can use this to load plugins and configure the editor on startup.
+
+### Renderer
+
+The editor defaults to the WebGL renderer. Switch to the DOM renderer (or back) from within the editor:
+
+```vim
+:renderer dom
+:renderer webgl
+```
+
+Using `:renderer` with no argument toggles between the two renderers.
 
 ## License
 

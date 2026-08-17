@@ -1,20 +1,7 @@
 import { onMount, createEffect, onCleanup } from 'solid-js';
+import { FONT_STYLE, measureFont, BOX_CHARS, type GridRendererProps } from './font-metrics';
 
-interface WebGLRendererProps {
-  chars: Uint8Array;
-  fgs: Uint8Array;
-  bgs: Uint8Array;
-  width: number;
-  height: number;
-  showCursor: boolean,
-  cursorX: number;
-  cursorY: number;
-  crtEnabled?: boolean;
-  showKeyboard?: boolean;
-  onMeasure?: (size: { width: number, height: number }) => void;
-}
-
-export const WebGLRenderer = (props: WebGLRendererProps & { canvasRef?: (el: HTMLCanvasElement) => void }) => {
+export const WebGLRenderer = (props: GridRendererProps & { canvasRef?: (el: HTMLCanvasElement) => void }) => {
   let canvasRef: HTMLCanvasElement | undefined;
   let gl: WebGL2RenderingContext | null = null;
   let program: WebGLProgram | null = null;
@@ -24,26 +11,6 @@ export const WebGLRenderer = (props: WebGLRendererProps & { canvasRef?: (el: HTM
   let bgsTexture: WebGLTexture | null = null;
   let startTime: number; // Declare startTime here
   let animationFrameId: number | null = null;
-
-  const FONT_STYLE = 'bold 24px monospace';
-
-  const measureFont = () => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d')!;
-    ctx.font = FONT_STYLE;
-    let maxWidth = 0;
-    // Sweep over printable ASCII to find max width
-    for (let i = 32; i < 127; i++) {
-      const metrics = ctx.measureText(String.fromCharCode(i));
-      if (metrics.width > maxWidth) {
-        maxWidth = metrics.width;
-      }
-    }
-    // Add small padding (e.g., 2px total, 1px on each side)
-    const cellWidth = Math.ceil(maxWidth) + 2;
-    const cellHeight = 32; // We'll keep a fixed height for the atlas rows
-    return { cellWidth, cellHeight };
-  };
 
   const { cellWidth, cellHeight } = measureFont();
 
@@ -215,24 +182,6 @@ export const WebGLRenderer = (props: WebGLRendererProps & { canvasRef?: (el: HTM
     // Matches characters in the range from space (ASCII 32) to tilde (ASCII 126)
     return /^[ -~]$/.test(c);
   }
-
-  const BOX_CHARS: Record<number, string> = {
-    1: '│',
-    2: '─',
-    3: '┌',
-    4: '┐',
-    5: '└',
-    6: '┘',
-    7: '├',
-    8: '┤',
-    9: '┬',
-    10: '┴',
-    11: '┼',
-    12: '╭',
-    13: '╮',
-    14: '╯',
-    15: '╰',
-  };
 
   const createFontAtlas = (gl: WebGL2RenderingContext) => {
     const canvas = document.createElement('canvas');

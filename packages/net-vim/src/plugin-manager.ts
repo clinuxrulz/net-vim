@@ -66,9 +66,7 @@ export class PluginManager {
       // Transpile TypeScript to JavaScript using Babel Standalone
       const result = babel.transform(tsSource, {
         filename: `${name}.tsx`,
-        presets: [
-          ['typescript', { isTSX: true, allExtensions: true }]
-        ],
+        presets: ['typescript'],
         plugins: [
           ['transform-modules-commonjs', { loose: true }],
           ['transform-react-jsx', { pragma: 'h', pragmaFrag: 'Fragment' }]

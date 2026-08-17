@@ -1,6 +1,7 @@
-import { createSignal, onMount, Show, createEffect, For, onCleanup } from 'solid-js';
+import { createSignal, onMount, Show, createEffect, For, onCleanup, batch } from 'solid-js';
 import { render } from './solid-universal-tui';
 import { WebGLRenderer } from './WebGLRenderer';
+import { DOMRenderer } from './DOMRenderer';
 import { VimEngine } from './vim-engine';
 import { VimUI } from './VimUI';
 import type { VimState } from './types';
@@ -83,6 +84,7 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
   const [isMobile, setIsMobile] = createSignal(false);
   const [showKeyboard, setShowKeyboard] = createSignal(false);
   const [crtEnabled, setCrtEnabled] = createSignal(false);
+  const [rendererMode, setRendererMode] = createSignal<'webgl' | 'dom'>('webgl');
   const [contextMenu, setContextMenu] = createSignal<{ x: number, y: number, items: any[] } | null>(null);
 
   let [ hasFocus, setHasFocus, ] = createSignal(false);
@@ -223,6 +225,14 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
       // Register CRT toggle command
       vimInstance.getAPI().registerCommand('crt', () => {
         setCrtEnabled(!crtEnabled());
+      });
+
+      // Register renderer switch command: :renderer dom|webgl (bare toggles)
+      vimInstance.getAPI().registerCommand('renderer', (args) => {
+        const target = (args[0] || '').toLowerCase();
+        if (target === 'dom') setRendererMode('dom');
+        else if (target === 'webgl') setRendererMode('webgl');
+        else setRendererMode(rendererMode() === 'webgl' ? 'dom' : 'webgl');
       });
 
       // Command to create a default init.ts if missing
@@ -379,11 +389,24 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
     }
   };
 
+  // Coalesce renders to one per animation frame. Without this, rapid state
+  // changes (e.g. touch-drag scroll issuing multiple ctrl+e) each run the full
+  // TUI render synchronously, which stalls the main thread and causes the
+  // browser to throttle/drop touchmove events mid-gesture.
+  let tickRaf = 0;
+  const scheduleTick = () => {
+    if (tickRaf) return;
+    tickRaf = requestAnimationFrame(() => {
+      tickRaf = 0;
+      runTick();
+    });
+  };
+
   // Watch for changes and request a tick
   createEffect(() => {
     vimState();
     gridDim();
-    runTick();
+    scheduleTick();
   });
 
   // Shared key handler
@@ -527,13 +550,15 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
       const rowHeight = charSize().height;
       if (Math.abs(touchScrollAccumulator) >= rowHeight) {
         const rowsToScroll = Math.floor(Math.abs(touchScrollAccumulator) / rowHeight);
-        for (let i = 0; i < rowsToScroll; i++) {
-          if (touchScrollAccumulator > 0) {
-            processKey('e', true); // Scroll down (Ctrl+e)
-          } else {
-            processKey('y', true); // Scroll up (Ctrl+y)
+        batch(() => {
+          for (let i = 0; i < rowsToScroll; i++) {
+            if (touchScrollAccumulator > 0) {
+              processKey('e', true); // Scroll down (Ctrl+e)
+            } else {
+              processKey('y', true); // Scroll up (Ctrl+y)
+            }
           }
-        }
+        });
         touchScrollAccumulator %= rowHeight;
       }
       e.preventDefault();
@@ -547,6 +572,15 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
     if (e.touches.length === 0) {
       touchScrollAccumulator = 0;
     }
+  };
+
+  const handleTouchCancel = () => {
+    // The browser interrupted the gesture (system UI, gesture takeover, etc.).
+    // Reset drag state so a subsequent touch starts clean instead of resuming
+    // with a stale lastTouchY/accumulator that immediately over-scrolls.
+    initialPinchDistance = 0;
+    lastTouchY = 0;
+    touchScrollAccumulator = 0;
   };
 
   onMount(() => {
@@ -577,11 +611,16 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
     containerRef.addEventListener('touchstart', handleTouchStart, { passive: false });
     containerRef.addEventListener('touchmove', handleTouchMove, { passive: false });
     containerRef.addEventListener('touchend', handleTouchEnd);
+    containerRef.addEventListener('touchcancel', handleTouchCancel, { passive: false });
     let resizeObserver = new ResizeObserver(() => {
       updateDimensions();
     });
     resizeObserver.observe(containerRef);
     onCleanup(() => {
+      if (tickRaf) {
+        cancelAnimationFrame(tickRaf);
+        tickRaf = 0;
+      }
       resizeObserver.unobserve(containerRef);
       resizeObserver.disconnect();
       containerRef.removeEventListener('keydown', handleKeyDown);
@@ -593,6 +632,7 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
       containerRef.removeEventListener('touchstart', handleTouchStart);
       containerRef.removeEventListener('touchmove', handleTouchMove);
       containerRef.removeEventListener('touchend', handleTouchEnd);
+      containerRef.removeEventListener('touchcancel', handleTouchCancel);
       if (window.visualViewport) {
         window.visualViewport.removeEventListener('resize', updateViewportHeight);
         window.visualViewport.removeEventListener('scroll', updateViewportHeight);
@@ -714,23 +754,45 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
         onFocusIn={() => setHasFocus(true)}
         onFocusOut={() => setHasFocus(false)}
       >
-        <WebGLRenderer
-          chars={renderData().chars}
-          fgs={renderData().fgs}
-          bgs={renderData().bgs}
-          width={gridDim().width}
-          height={gridDim().height}
-          showCursor={hasFocus()}
-          cursorX={visualCursor().x}
-          cursorY={visualCursor().y}
-          crtEnabled={crtEnabled()}
-          showKeyboard={showKeyboard()}
-          onMeasure={(size) => {
-            console.log('Measured font size:', size);
-            setCharSize(size);
-            updateDimensions();
-          }}
-        />
+        <Show when={rendererMode() === 'webgl'} fallback={
+          <DOMRenderer
+            chars={renderData().chars}
+            fgs={renderData().fgs}
+            bgs={renderData().bgs}
+            width={gridDim().width}
+            height={gridDim().height}
+            cellWidth={charSize().width}
+            cellHeight={charSize().height}
+            showCursor={hasFocus()}
+            cursorX={visualCursor().x}
+            cursorY={visualCursor().y}
+            crtEnabled={crtEnabled()}
+            showKeyboard={showKeyboard()}
+            onMeasure={(size) => {
+              console.log('Measured font size (dom):', size);
+              setCharSize(size);
+              updateDimensions();
+            }}
+          />
+        }>
+          <WebGLRenderer
+            chars={renderData().chars}
+            fgs={renderData().fgs}
+            bgs={renderData().bgs}
+            width={gridDim().width}
+            height={gridDim().height}
+            showCursor={hasFocus()}
+            cursorX={visualCursor().x}
+            cursorY={visualCursor().y}
+            crtEnabled={crtEnabled()}
+            showKeyboard={showKeyboard()}
+            onMeasure={(size) => {
+              console.log('Measured font size:', size);
+              setCharSize(size);
+              updateDimensions();
+            }}
+          />
+        </Show>
       </div>
 
       <div style={{ width: '100%', 'margin-top': '0px', overflow: 'hidden' }}>
