@@ -68,6 +68,12 @@ export class TreeSitterHighlighter {
   readonly active = new Map<number, { buf: number; lang: string }>();
   private rendererRegistered = false;
   private textChangedSubscribed = false;
+  // Per-frame caches: the buffer source string and per-line highlight segments
+  // are recomputed only when the buffer actually changes (a TextChanged event),
+  // not on every repaint (cursor moves, which-key popup updates, etc.).
+  private sourceVersion = 0;
+  private sourceTextCache: string | null = null;
+  private segmentsCache = new Map<string, Segment[] | null>();
 
   constructor(ctx: HighlightContext, loader: LanguageLoader) {
     this.ctx = ctx;
@@ -136,18 +142,24 @@ export class TreeSitterHighlighter {
     if (this.textChangedSubscribed) return;
     this.textChangedSubscribed = true;
     this.ctx.backend.on('TextChanged', () => {
-      const source = this.source();
-      for (const [buf, rec] of this.parses) {
-        if (rec.source !== source) {
-          this.parses.delete(buf);
-        }
-      }
+      this.invalidateSource();
       if (this.ctx.rerender) this.ctx.rerender();
     });
   }
 
+  /** Called when the underlying buffer changes: drop all frame caches. */
+  private invalidateSource() {
+    this.sourceVersion++;
+    this.sourceTextCache = null;
+    this.segmentsCache.clear();
+    this.parses.clear();
+  }
+
   private source(): string {
-    return this.ctx.backend.getBuffer().join('\n');
+    if (this.sourceTextCache === null) {
+      this.sourceTextCache = this.ctx.backend.getBuffer().join('\n');
+    }
+    return this.sourceTextCache;
   }
 
   private ensureRenderer() {
@@ -182,7 +194,7 @@ export class TreeSitterHighlighter {
     const leftCol = this.resolve(props.leftCol) ?? 0;
     const viewportWidth = this.resolve(props.viewportWidth) ?? 80;
 
-    const segments = this.segmentsForLine(parser, q, lineIndex, lineContent.length);
+    const segments = this.renderedSegments(parser, q, lineIndex, lineContent.length);
     if (!segments || segments.length === 0) return null;
 
     const tokens: any[] = [];
@@ -274,6 +286,20 @@ export class TreeSitterHighlighter {
       }
     }
     return merged;
+  }
+
+  /**
+   * Per-frame cached highlight segments for a line. The segments for each
+   * buffer line only depend on the buffer source, which is invalidated on
+   * TextChanged — so repaints that do not edit the buffer (cursor moves,
+   * which-key popup updates, …) skip re-parsing / re-capturing entirely.
+   */
+  private renderedSegments(parser: BufferTreeParser, q: TreesitterQuery, line: number, textLen: number): Segment[] | null {
+    const key = `${this.sourceVersion}:${line}`;
+    if (this.segmentsCache.has(key)) return this.segmentsCache.get(key)!;
+    const segs = this.segmentsForLine(parser, q, line, textLen);
+    this.segmentsCache.set(key, segs);
+    return segs;
   }
 
   invalidateAll() {

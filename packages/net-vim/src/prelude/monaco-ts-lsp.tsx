@@ -6,6 +6,17 @@ export default {
     description: 'TypeScript LSP powered by Monaco editor instance'
   },
   setup: async (api: any) => {
+    // This plugin provides the authoritative TypeScript/TSX highlighter, so
+    // tell tree-sitter to step aside for these languages (no double work).
+    try {
+      api.evalLua(`
+        vim.treesitter.highlighter.disable_lang('typescript')
+        vim.treesitter.highlighter.disable_lang('tsx')
+        vim.treesitter.stop(1)
+      `);
+    } catch (e) {
+      /* ignore */
+    }
     let monaco: any = null;
     let isInitialized = false;
     let currentPath = '';

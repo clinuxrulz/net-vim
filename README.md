@@ -138,6 +138,10 @@ Net-Vim also embeds a tree-sitter runtime (`web-tree-sitter`), exposed to Lua th
 
 Grammars are fetched at runtime from `@vscode/tree-sitter-wasm` (bash, c-sharp, cpp, css, go, ini, java, javascript, php, powershell, python, regex, ruby, rust, tsx, typescript) and cached in OPFS. **Lua is bundled directly** (compiled for the web-tree-sitter ABI, with the grammar's official `highlights.scm`), so `vim.treesitter.start(buf, 'lua')` and `get_parser` for Lua files work out of the box with no network access. Common languages are preloaded in the background so `get_parser()` is synchronous for them; grammars for other languages load on demand (the first `get_parser` for a not-yet-loaded language returns `nil` and triggers a background load). For languages outside the bundled+CDN set (e.g. JSON/Markdown/TOML/YAML), place a grammar at `.config/net-vim/grammars/tree-sitter-<lang>.wasm` or provide a `readGrammarBytes` callback via `LuaPluginVM`/`configureLuaRuntime`.
 
+Highlighting is cached **per frame** (buffer source and per-line captures are only recomputed when the buffer actually changes via `TextChanged`), so repaints — cursor moves, which-key popup updates, etc. — don't re-parse or re-capture the whole file.
+
+**Languages owned by dedicated highlighters:** the TypeScript LSP plugin ships its own TS/TSX highlighter (TS Language Service classifications). To avoid two highlighters running over the same source, the plugin claims those languages via `vim.treesitter.highlighter.disable_lang('typescript')` / `disable_lang('tsx')`, and `vim.treesitter.start()` then refuses to touch them. Re-enable treesitter for TS with: `:lua vim.treesitter.highlighter.enable_lang('typescript')`.
+
 
 
 ### Renderer

@@ -42,6 +42,10 @@ export function createTreesitter(ctx: TreesitterInstallContext): TreesitterAPI {
   const bufferParsers = new Map<string, BufferTreeParser>();
   const queryCache = new Map<string, TreesitterQuery>();
   const userQueries = new Map<string, string>();
+  // Languages whose highlighting is owned by a dedicated (non-treesitter)
+  // plugin — e.g. the TypeScript LSP plugin. vim.treesitter.start() refuses
+  // these so we don't run two highlighters over the same source.
+  const disabledHighlightLangs: Set<string> = new Set();
 
   const kickstart = (langs: string[]) => {
     // Skip eager CDN preload under test runners to keep suites hermetic/fast.
@@ -178,7 +182,11 @@ export function createTreesitter(ctx: TreesitterInstallContext): TreesitterAPI {
       return highlighter.capturesAt(bufnr, row, col);
     };
 
-    ts.start = (bufnr: number, lang?: string) => highlighter.start(bufnr, lang);
+    ts.start = (bufnr: number, lang?: string) => {
+      const resolved = (lang ? normalizeLang(lang) : null) ?? ts.language.get_lang(bufnr);
+      if (resolved && disabledHighlightLangs.has(resolved)) return false;
+      return highlighter.start(bufnr, lang);
+    };
     ts.stop = (bufnr: number) => highlighter.stop(bufnr);
 
     ts.query = {
@@ -223,6 +231,16 @@ export function createTreesitter(ctx: TreesitterInstallContext): TreesitterAPI {
           return true;
         },
       }), { proxy: true }),
+      // Let dedicated highlighters (e.g. the TypeScript LSP plugin) own a
+      // language: vim.treesitter.start() then refuses to touch it.
+      disable_lang: (lang: string) => {
+        const key = normalizeLang(lang);
+        if (key) disabledHighlightLangs.add(key);
+      },
+      enable_lang: (lang: string) => {
+        const key = normalizeLang(lang);
+        if (key) disabledHighlightLangs.delete(key);
+      },
     };
 
     vim.treesitter = ts;

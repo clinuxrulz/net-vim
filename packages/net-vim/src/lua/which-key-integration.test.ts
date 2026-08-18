@@ -46,12 +46,17 @@ async function makeEditor() {
   const engine = new VimEngine(() => {}, () => {});
   const ok = await engine.loadLuaPluginFromSource('init.lua', INIT_LUA);
   expect(ok).toBe(true);
-  // Force which-key to build the mode's mapping tree + triggers synchronously
-  // (in the real app the 50ms poll does this; here it makes the test
-  // deterministic regardless of event-loop load from other suites).
-  await engine.evalLua(`require('which-key.buf').get({ mode = 'n', update = true })`);
-  // Wait until which-key's trigger keymaps have been attached.
-  const hasTrigger = await waitFor(() => engine.getAPI().getKeymaps?.().some((k) => k.lhs === ' ') ?? false);
+  // Wait until which-key's trigger keymaps have been attached. To make this
+  // deterministic regardless of event-loop timing, best-effort kick which-key's
+  // mode build (`config.load` is scheduled asynchronously by setup(), so this
+  // may fail until it has finished — hence the retry loop).
+  const hasTrigger = await waitFor(() => {
+    const kms = engine.getAPI().getKeymaps?.().some((k) => k.lhs === ' ');
+    if (!kms) {
+      engine.evalLua(`require('which-key.buf').get({ mode = 'n', update = true })`).catch(() => {});
+    }
+    return kms ?? false;
+  });
   expect(hasTrigger).toBe(true);
   return engine;
 }

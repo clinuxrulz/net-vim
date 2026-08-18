@@ -8,6 +8,17 @@ export default {
   setup: async (api: any) => {
     try {
       api.log('TS-LSP: Loading Comlink...');
+      // This plugin provides the authoritative TypeScript/TSX highlighter, so
+      // tell tree-sitter to step aside for these languages (no double work).
+      try {
+        api.evalLua(`
+          vim.treesitter.highlighter.disable_lang('typescript')
+          vim.treesitter.highlighter.disable_lang('tsx')
+          vim.treesitter.stop(1)
+        `);
+      } catch (e) {
+        api.log('TS-LSP: Error disabling treesitter: ' + (e && (e as any).message));
+      }
       const Comlink = await import("https://esm.sh/comlink@4.4.1");
       api.log('TS-LSP: Comlink loaded. Loading worker source...');
       
@@ -54,6 +65,65 @@ export default {
       const indexedFiles = new Set<string>();
       const failedLookups = new Set<string>();
       const classificationsMap = new Map<string, any>();
+      // Per-file token index so per-line rendering is O(spans-in-line) instead
+      // of re-walking the whole buffer and all spans for every visible line.
+      const tokenIndexCache = new Map<string, { offsets: number[]; lineSpans: Map<number, any[]> }>();
+      const invalidateTokenIndex = (absPath?: string) => {
+        if (absPath) tokenIndexCache.delete(absPath);
+        else tokenIndexCache.clear();
+      };
+      const findLine = (offset: number, offsets: number[]) => {
+        let lo = 0, hi = offsets.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi + 1) >> 1;
+          if (offsets[mid] <= offset) lo = mid; else hi = mid - 1;
+        }
+        return lo;
+      };
+      const getTokenIndex = (absPath: string) => {
+        const cached = tokenIndexCache.get(absPath);
+        if (cached) return cached;
+        const bufferLines = api.getBuffer();
+        const offsets: number[] = [];
+        let lineStartOffset = 0;
+        for (let i = 0; i < bufferLines.length; i++) {
+          offsets[i] = lineStartOffset;
+          lineStartOffset += (bufferLines[i]?.length || 0) + 1;
+        }
+        const classifications = classificationsMap.get(absPath);
+        const { syntactic, semantic } = classifications || { syntactic: [], semantic: [] };
+        const lineSpans = new Map<number, any[]>();
+        const put = (spans: number[] | undefined, isSemantic: boolean) => {
+          if (!spans) return;
+          const lastLine = offsets.length - 1;
+          for (let i = 0; i < spans.length; i += 3) {
+            const start = spans[i];
+            const length = spans[i + 1];
+            const type = spans[i + 2];
+            const end = start + length;
+            const startLine = Math.min(findLine(start, offsets), lastLine);
+            const endLine = Math.min(findLine(Math.max(start, end - 1), offsets), lastLine);
+            for (let line = startLine; line <= endLine; line++) {
+              const lineStart = offsets[line];
+              const nextLineStart = (line < lastLine ? offsets[line + 1] : end + 1);
+              const relStart = Math.max(0, start - lineStart);
+              const relEnd = Math.min(nextLineStart, end) - lineStart;
+              if (relEnd <= relStart) continue;
+              const entry = lineSpans.get(line) || [];
+              entry.push({ start: relStart, length: relEnd - relStart, type, isSemantic });
+              lineSpans.set(line, entry);
+            }
+          }
+        };
+        put(syntactic, false);
+        put(semantic, true);
+        lineSpans.forEach((spans) => {
+          spans.sort((a: any, b: any) => a.start - b.start || b.length - a.length || (a.isSemantic ? -1 : 1));
+        });
+        const index = { offsets, lineSpans };
+        tokenIndexCache.set(absPath, index);
+        return index;
+      };
 
       const updateClassifications = async () => {
         if (!currentPath || !(currentPath.endsWith('.ts') || currentPath.endsWith('.tsx'))) return;
@@ -63,6 +133,7 @@ export default {
           const classifications = await worker.getClassifications(absolutePath, 0, buffer.length);
           if (classifications) {
             classificationsMap.set(absolutePath, classifications);
+            invalidateTokenIndex(absolutePath);
             api.rerender();
           }
         } catch (e) {
@@ -580,6 +651,7 @@ export default {
           const buffer = api.getBuffer().join('\n');
           if (currentPath && (currentPath.endsWith('.ts') || currentPath.endsWith('.tsx'))) {
             const absolutePath = currentPath.startsWith('/') ? currentPath : '/' + currentPath;
+            invalidateTokenIndex(absolutePath);
             await worker.updateFile(absolutePath, buffer);
             await resolveImports(absolutePath, buffer);
             await updateLints();
@@ -676,43 +748,25 @@ export default {
               return [{ x: 0, content: content.slice(startCol, startCol + width), color: '#ffffff' }];
             }
 
-            const bufferLines = api.getBuffer();
-            let lineStartOffset = 0;
-            for (let i = 0; i < idx; i++) {
-              lineStartOffset += (bufferLines[i]?.length || 0) + 1;
-            }
+            const index = getTokenIndex(absolutePath);
+            const lineStartOffset = index.offsets[idx] ?? 0;
             const lineEndOffset = lineStartOffset + content.length;
 
-            const relevantSpans: any[] = [];
-            const { syntactic, semantic } = classifications;
-
-            const addSpans = (spans: number[], isSemantic: boolean) => {
-              if (!spans) return;
-              for (let i = 0; i < spans.length; i += 3) {
-                const start = spans[i];
-                const length = spans[i + 1];
-                const type = spans[i + 2];
-                if (start + length > lineStartOffset && start < lineEndOffset) {
-                  relevantSpans.push({ start, length, type, isSemantic });
-                }
-              }
-            };
-
-            addSpans(syntactic, false);
-            addSpans(semantic, true);
-
-            relevantSpans.sort((a, b) => a.start - b.start || b.length - a.length || (a.isSemantic ? -1 : 1));
+            const relevantSpans: any[] = index.lineSpans.get(idx) || [];
+            for (const span of relevantSpans) {
+              span.absoluteStart = lineStartOffset + span.start;
+            }
 
             const tokens = [];
             let currentPos = lineStartOffset;
             const visibleEndCol = startCol + width;
 
             for (const span of relevantSpans) {
-              if (span.start < currentPos) continue;
+              if (span.absoluteStart < currentPos) continue;
 
-              if (span.start > currentPos) {
+              if (span.absoluteStart > currentPos) {
                 const gapStart = Math.max(startCol, currentPos - lineStartOffset);
-                const gapEnd = Math.min(visibleEndCol, span.start - lineStartOffset);
+                const gapEnd = Math.min(visibleEndCol, span.absoluteStart - lineStartOffset);
                 if (gapEnd > gapStart) {
                   tokens.push({
                     x: gapStart - startCol,
@@ -722,8 +776,8 @@ export default {
                 }
               }
 
-              const spanStart = Math.max(startCol, span.start - lineStartOffset);
-              const spanEnd = Math.min(visibleEndCol, span.start + span.length - lineStartOffset);
+              const spanStart = Math.max(startCol, span.start);
+              const spanEnd = Math.min(visibleEndCol, span.start + span.length);
               if (spanEnd > spanStart) {
                 tokens.push({
                   x: spanStart - startCol,
@@ -731,7 +785,7 @@ export default {
                   color: getColorForClassification(span.type)
                 });
               }
-              currentPos = span.start + span.length;
+              currentPos = span.absoluteStart + span.length;
             }
 
             if (currentPos < lineEndOffset) {
