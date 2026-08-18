@@ -100,12 +100,18 @@ importers:
       '@net-vim/virtual-keyboard':
         specifier: workspace:*
         version: link:../virtual-keyboard
+      '@vscode/tree-sitter-wasm':
+        specifier: ^0.3.1
+        version: 0.3.1
       solid-js:
         specifier: ^1.9.11
         version: 1.9.11
       wasmoon:
         specifier: ^1.16.0
         version: 1.16.0
+      web-tree-sitter:
+        specifier: ^0.26.12
+        version: 0.26.12
     devDependencies:
       typescript:
         specifier: ~5.9.3
@@ -828,6 +834,9 @@ packages:
   '@volar/typescript@2.4.28':
     resolution: {integrity: sha512-Ja6yvWrbis2QtN4ClAKreeUZPVYMARDYZl9LMEv1iQ1QdepB6wn0jTRxA9MftYmYa4DQ4k/DaSZpFPUfxl8giw==}
 
+  '@vscode/tree-sitter-wasm@0.3.1':
+    resolution: {integrity: sha512-RJFoomET6FajjG511fmQxeBQfU6M24a0aFZPqpid+ttIxanWf1VGytBG0UmsGjt07qmIPJS8U31D+aecuCucsQ==}
+
   '@vue/compiler-core@3.5.30':
     resolution: {integrity: sha512-s3DfdZkcu/qExZ+td75015ljzHc6vE+30cFMGRPROYjqkroYI5NV2X1yAMX9UeyBNWB9MxCfPcsjpLS11nzkkw==}
 
@@ -1549,6 +1558,9 @@ packages:
     resolution: {integrity: sha512-FlRLb15WwAOz1A9OQDbf6oOKKSiefi5VK0ZRF2wgH9xk3o5SnU11tNPaOnQuAh1Ucr66cwwvVXaeVRaFdRBt5g==}
     hasBin: true
 
+  web-tree-sitter@0.26.12:
+    resolution: {integrity: sha512-fvqTNZQBGUgUgfP0mHw+iHf9Yf6bRQrp0A3pSf2v/hSKxkT1beCoIWoLVmlPL7O6dmySfSb/t1aJoJvrgTRStw==}
+
   webidl-conversions@8.0.1:
     resolution: {integrity: sha512-BMhLD/Sw+GbJC21C/UgyaZX41nPt8bUTg+jWyDeg7e7YN4xOM05YPSIXceACnXVtqyEw/LMClUQMtMZ+PGGpqQ==}
     engines: {node: '>=20'}
@@ -2189,6 +2201,8 @@ snapshots:
       '@volar/language-core': 2.4.28
       path-browserify: 1.0.1
       vscode-uri: 3.1.0
+
+  '@vscode/tree-sitter-wasm@0.3.1': {}
 
   '@vue/compiler-core@3.5.30':
     dependencies:
@@ -2877,6 +2891,8 @@ snapshots:
   wasmoon@1.16.0:
     dependencies:
       '@types/emscripten': 1.39.10
+
+  web-tree-sitter@0.26.12: {}
 
   webidl-conversions@8.0.1: {}
 

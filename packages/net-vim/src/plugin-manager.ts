@@ -61,7 +61,10 @@ export class PluginManager {
       this.luaVM = (async () => {
         const loader = await buildModuleLoader(api.getFS());
         const backend = createLuaBackendFromAPI(api);
-        const vm = await LuaPluginVM.create(backend, loader);
+        const vm = await LuaPluginVM.create(backend, loader, {
+          registerLineRenderer: (opts) => api.registerLineRenderer(opts),
+          rerender: () => api.rerender(),
+        });
         return vm;
       })();
     }

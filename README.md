@@ -94,7 +94,19 @@ Loading a Lua plugin from a TypeScript/`init.ts` plugin:
 await api.loadLuaPluginFromSource('my-plugin', luaSourceString);
 ```
 
-Not implemented (deliberately out of scope): `vim.lsp`, Treesitter, `vim.loop`/`vim.uv` libuv bindings, and `vim.fn` functions that require native execution. Plugin authors should also note `vim.wait` uses a busy loop (it does not yield to the browser event loop).
+Not implemented (deliberately out of scope): `vim.lsp`, `vim.loop`/`vim.uv` libuv bindings, and `vim.fn` functions that require native execution. Plugin authors should also note `vim.wait` uses a busy loop (it does not yield to the browser event loop).
+
+### Treesitter (`vim.treesitter`)
+
+Net-Vim also embeds a tree-sitter runtime (`web-tree-sitter`), exposed to Lua through `vim.treesitter.*`:
+
+- `vim.treesitter.get_parser(buf, lang)` / `get_string_parser(src, lang)` / `get_node`, `vim.treesitter.get_captures_at_pos`.
+- `vim.treesitter.query.get_query/compile/parse`, with `q:iter_captures()` / `q:iter_matches()` usable directly in Lua generic-for loops.
+- `vim.treesitter.start(buf, lang)` / `stop()` plus `vim.treesitter.highlighter.active[buf]`, which highlight the buffer via a line renderer using the built-in `highlights.scm` queries and a Neovim-ish color scheme.
+- Node API: `node:type()`, `:start()`, `:end_()`, `:range()`, `:text()`, `:child()`, `:named_child()`, `:field()`, `:parent()`, `:iter_children()`, `:has_error()`, and more.
+
+Grammars are fetched at runtime from `@vscode/tree-sitter-wasm` (bash, c-sharp, cpp, css, go, ini, java, javascript, php, powershell, python, regex, ruby, rust, tsx, typescript) and cached in OPFS. Common languages are preloaded in the background so `get_parser()` is synchronous for them; grammars for other languages load on demand (the first `get_parser` for a not-yet-loaded language returns `nil` and triggers a background load). Lua/JSON/Markdown grammars are not in that set — place a grammar file at `.config/net-vim/grammars/tree-sitter-<lang>.wasm` to supply your own, or configure `configureLuaRuntime`/`LuaPluginVM` `readGrammarBytes`.
+
 
 
 ### Renderer

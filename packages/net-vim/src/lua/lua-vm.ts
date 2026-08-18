@@ -2,6 +2,7 @@ import { createLuaEngine } from '../lua-runtime';
 import type { LuaBackend } from './backend';
 import { createVimShim, VimShim } from './shim';
 import type { LuaModuleLoader } from './shim';
+import { createTreesitter, type TreesitterAPI } from './treesitter';
 
 const BOOTSTRAP = `
 -- Expose vim.* tables so require('vim.foo') works like in Neovim
@@ -38,23 +39,41 @@ table.insert(package.searchers, 1, netvim_searcher)
 vim.pretty_print = function(...) print(vim.inspect({...})) end
 `;
 
+export interface LuaPluginVMOptions {
+  registerLineRenderer?: (opts: any) => void;
+  rerender?: () => void;
+  readGrammarBytes?: (lang: string) => Promise<Uint8Array | null>;
+  cdnBase?: string;
+  preload?: string[] | false;
+}
+
 export class LuaPluginVM {
   private handle: any;
   readonly engine: any;
   readonly shim: VimShim;
+  readonly treesitter: TreesitterAPI;
   private loadedPlugins: string[] = [];
 
-  private constructor(handle: any, engine: any, shim: VimShim) {
+  private constructor(handle: any, engine: any, shim: VimShim, treesitter: TreesitterAPI) {
     this.handle = handle;
     this.engine = engine;
     this.shim = shim;
+    this.treesitter = treesitter;
   }
 
-  static async create(backend: LuaBackend, moduleLoader: LuaModuleLoader): Promise<LuaPluginVM> {
+  static async create(backend: LuaBackend, moduleLoader: LuaModuleLoader, options: LuaPluginVMOptions = {}): Promise<LuaPluginVM> {
     const shim = createVimShim(backend, moduleLoader);
     const handle = await createLuaEngine();
     const engine = handle.engine;
-    const vm = new LuaPluginVM(handle, engine, shim);
+    const treesitter = createTreesitter({
+      backend,
+      registerLineRenderer: options.registerLineRenderer ?? (() => {}),
+      rerender: options.rerender,
+      readGrammarBytes: options.readGrammarBytes,
+      cdnBase: options.cdnBase,
+      preload: options.preload,
+    });
+    const vm = new LuaPluginVM(handle, engine, shim, treesitter);
     await vm.init();
     return vm;
   }
@@ -72,6 +91,8 @@ export class LuaPluginVM {
     this.engine.global.set('__netvim', helpers);
     this.engine.global.set('vim', this.shim.vim);
     await this.engine.doString(BOOTSTRAP);
+    this.treesitter.install(this.shim.vim);
+    await this.engine.doString(`package.loaded['vim.treesitter'] = vim.treesitter`);
   }
 
   async run(source: string): Promise<any> {
