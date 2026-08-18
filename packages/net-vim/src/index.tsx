@@ -10,10 +10,13 @@ export { default as VimEditor } from './VimEditor';
 export * from './types';
 export * from './vim-engine';
 export * from './plugin-manager';
+export * from './lua-runtime';
+export * as lua from './lua';
 export * as prelude from './prelude';
 export { PRELUDE_PLUGINS } from './prelude';
 
 const CONFIG_PATH = '.config/net-vim/init.ts';
+const CONFIG_LUA_PATH = '.config/net-vim/init.lua';
 
 const DEFAULT_INIT = `
 export default {
@@ -95,6 +98,16 @@ export async function initNetVim(container: HTMLElement, options: InitOptions = 
     }
   } catch (e) {
     console.error("[init] Error loading init.ts:", e);
+  }
+
+  // 3. Handle init.lua (Neovim-style Lua configuration)
+  try {
+    const luaInit = await autoFS.readFile(CONFIG_LUA_PATH);
+    if (luaInit) {
+      await vim.loadLuaPluginFromSource("init.lua", luaInit);
+    }
+  } catch (e) {
+    console.error("[init] Error loading init.lua:", e);
   }
 
   const dispose = render(() => <VimEditor engine={vim} />, container);

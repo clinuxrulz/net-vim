@@ -1,6 +1,9 @@
 import type { VimAPI, VimMode, GutterOptions, LineRendererOptions } from './types';
 import { h, Fragment } from './solid-universal-tui';
 import { autoFS } from './opfs-util';
+import { LuaPluginVM } from './lua/lua-vm';
+import { createLuaBackendFromAPI } from './lua/backend';
+import { buildModuleLoader } from './lua/modules';
 
 // Define the plugin-specific API that each plugin will receive
 export interface ScopedVimAPI extends VimAPI {
@@ -45,9 +48,44 @@ export class PluginManager {
   private plugins: Map<string, WebVimPlugin> = new Map();
   private pluginStates: Map<string, Map<string, any>> = new Map();
   private getBaseAPI: () => VimAPI;
+  private luaVM: Promise<LuaPluginVM> | null = null;
+  private luaPlugins: Set<string> = new Set();
 
   constructor(getBaseAPI: () => VimAPI) {
     this.getBaseAPI = getBaseAPI;
+  }
+
+  private getLuaVM(): Promise<LuaPluginVM> {
+    if (!this.luaVM) {
+      const api = this.getBaseAPI();
+      this.luaVM = (async () => {
+        const loader = await buildModuleLoader(api.getFS());
+        const backend = createLuaBackendFromAPI(api);
+        const vm = await LuaPluginVM.create(backend, loader);
+        return vm;
+      })();
+    }
+    return this.luaVM;
+  }
+
+  /**
+   * Loads a Lua plugin from a raw source string (Neovim-style `vim.*` API).
+   */
+  async loadLuaPluginFromSource(name: string, luaSource: string) {
+    console.log(`[PluginManager] Starting to load Lua plugin: ${name}`);
+    try {
+      const vm = await this.getLuaVM();
+      const ok = await vm.runPlugin(name, luaSource);
+      if (ok) this.luaPlugins.add(name);
+      return ok;
+    } catch (err) {
+      console.error(`[PluginManager] Failed to load Lua plugin ${name}:`, err);
+      return false;
+    }
+  }
+
+  getLoadedLuaPlugins() {
+    return Array.from(this.luaPlugins);
   }
 
   /**

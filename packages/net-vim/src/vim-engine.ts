@@ -28,6 +28,7 @@ export class VimEngine {
   private fs: FileSystem = autoFS;
   private leader = ' '; // Set leader to space as requested
   private pendingSequence = '';
+  private luaKeymaps: Array<{ mode: string; lhs: string; callback: () => void }> = [];
   private isInitialized = false;
 
   // Completion & Hover State
@@ -224,8 +225,15 @@ export class VimEngine {
       },
       executeCommand: (cmd) => this.executeCommand(cmd),
       loadPluginFromSource: (name, source) => this.loadPluginFromSource(name, source),
+      loadLuaPluginFromSource: (name, source) => this.loadLuaPluginFromSource(name, source),
       loadPlugin: (plugin) => this.loadPlugin(plugin),
       getLoadedPlugins: () => this.pluginManager.getLoadedPlugins(),
+      getLoadedLuaPlugins: () => this.pluginManager.getLoadedLuaPlugins(),
+      delCommand: (name) => { delete this.commands[name]; },
+      registerKeymap: (mode, lhs, callback) => this.registerLuaKeymap(mode, lhs, callback),
+      delKeymap: (mode, lhs) => this.delLuaKeymap(mode, lhs),
+      setLeader: (key) => this.setLeader(key),
+      showMessage: (msg) => this.showMessage(msg),
       registerGutter: (options: GutterOptions) => {
         console.log(`[VimEngine] Registering gutter: ${options.name}`, options);
         this.gutters.push(options);
@@ -420,8 +428,29 @@ export class VimEngine {
     this.eventListeners.get(event)?.forEach(cb => cb(...args));
   }
 
+  public setLeader(key: string) {
+    this.leader = key;
+  }
+
+  public registerLuaKeymap(mode: string, lhs: string, callback: () => void) {
+    this.luaKeymaps = this.luaKeymaps.filter(k => !(k.mode === mode && k.lhs === lhs));
+    this.luaKeymaps.push({ mode, lhs, callback });
+  }
+
+  public delLuaKeymap(mode: string, lhs: string) {
+    if (!lhs) {
+      this.luaKeymaps = this.luaKeymaps.filter(k => k.mode !== mode);
+      return;
+    }
+    this.luaKeymaps = this.luaKeymaps.filter(k => !(k.mode === mode && k.lhs === lhs));
+  }
+
   public async loadPluginFromSource(name: string, tsSource: string) {
     return this.pluginManager.loadPluginFromSource(name, tsSource);
+  }
+
+  public async loadLuaPluginFromSource(name: string, luaSource: string) {
+    return this.pluginManager.loadLuaPluginFromSource(name, luaSource);
   }
 
   public async loadPlugin(plugin: any) {
@@ -707,6 +736,25 @@ export class VimEngine {
       currentSeq += 'leader';
     } else {
       currentSeq += key;
+    }
+
+    // Plugin/Lua keymaps take priority over built-in sequences.
+    const luaMatch = this.luaKeymaps.find(k => k.mode === 'n' && k.lhs === currentSeq);
+    if (luaMatch) {
+      this.pendingSequence = '';
+      try {
+        luaMatch.callback();
+      } catch (err) {
+        console.error('[VimEngine] keymap callback error:', err);
+      }
+      return;
+    }
+    const luaPrefix = this.luaKeymaps.find(
+      k => k.mode === 'n' && k.lhs.startsWith(currentSeq) && k.lhs.length > currentSeq.length
+    );
+    if (luaPrefix) {
+      this.pendingSequence = currentSeq;
+      return;
     }
 
     // Check for sequences

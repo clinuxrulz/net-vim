@@ -232,6 +232,16 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
           console.error("Error loading init.ts:", e);
         }
       }
+
+      // 1b. Load Neovim-style init.lua (plus any lua/ modules for require)
+      const luaInit = await autoFS.readFile('.config/net-vim/init.lua');
+      if (luaInit) {
+        try {
+          await vimInstance.loadLuaPluginFromSource("init.lua", luaInit);
+        } catch (e) {
+          console.error("Error loading init.lua:", e);
+        }
+      }
       
       // Register CRT toggle command
       vimInstance.getAPI().registerCommand('crt', () => {

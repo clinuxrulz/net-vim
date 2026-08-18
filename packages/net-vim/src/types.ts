@@ -119,6 +119,11 @@ export interface FileSystem {
 
 export interface VimAPI {
   registerCommand: (name: string, callback: (args: string[]) => void) => void;
+  delCommand: (name: string) => void;
+  registerKeymap: (mode: string, lhs: string, callback: () => void, opts?: any) => void;
+  delKeymap: (mode: string, lhs: string) => void;
+  setLeader: (key: string) => void;
+  showMessage: (msg: string) => void;
   getBuffer: () => string[];
   setBuffer: (buffer: string[]) => void;
   requestFocus: () => void,
@@ -132,8 +137,10 @@ export interface VimAPI {
   on: (event: VimEvent, callback: (...args: any[]) => void) => void;
   executeCommand: (cmd: string) => void;
   loadPluginFromSource: (name: string, source: string) => Promise<boolean>;
+  loadLuaPluginFromSource: (name: string, source: string) => Promise<boolean>;
   loadPlugin: (plugin: any) => Promise<boolean>;
   getLoadedPlugins: () => any[];
+  getLoadedLuaPlugins: () => string[];
   registerGutter: (options: GutterOptions) => void;
   registerLineRenderer: (options: LineRendererOptions) => void;
   

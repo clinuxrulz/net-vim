@@ -52,7 +52,8 @@
   },
   "dependencies": {
     "@net-vim/virtual-keyboard": "workspace:*",
-    "solid-js": "^1.9.11"
+    "solid-js": "^1.9.11",
+    "wasmoon": "^1.16.0"
   },
   "devDependencies": {
     "typescript": "~5.9.3",
