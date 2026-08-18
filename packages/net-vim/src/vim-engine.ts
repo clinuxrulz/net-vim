@@ -569,19 +569,48 @@ export class VimEngine {
     return buf;
   }
 
+  /**
+   * Flattens a float-window title/footer value to a plain string. Neovim
+   * accepts a list of `{ text, hl_group }` segments (which-key's trail
+   * renders its title/footer that way); when bridged through wasmoon the
+   * Lua tables arrive as nested arrays/objects, so unwrap any of the
+   * possible shapes.
+   */
+  private flattenWinText(v: any): string | undefined {
+    if (v === undefined || v === null) return undefined;
+    if (typeof v === 'string') return v;
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+    const segText = (seg: any): string => {
+      if (typeof seg === 'string' || typeof seg === 'number') return String(seg);
+      if (seg === null || seg === undefined) return '';
+      if (typeof seg !== 'object') return String(seg);
+      // Lua `{ text, hl }` pairs arrive 0-based through wasmoon; `{ str = ..., hl = ... }` maps stay objects
+      const direct = seg.str ?? seg[0] ?? seg[1];
+      if (typeof direct === 'string') return direct;
+      return '';
+    };
+    if (Array.isArray(v)) return v.map(segText).join('');
+    const keys = Object.keys(v).map(Number).filter((k) => Number.isInteger(k)).sort((a, b) => a - b);
+    if (keys.length > 0) return keys.map((k) => segText(v[k])).join('');
+    return segText(v);
+  }
+
   private nvimOpenWin(buf: number, _enter: boolean, config: any): number {
     if (!this.floatBuffers.has(buf)) this.floatBuffers.set(buf, { lines: [], extmarks: [], options: {} });
     const win = this.nextWinId++;
     this.floatWinBuf.set(win, buf);
+    const anchor = config.relative === 'win' && typeof config.win === 'number'
+      ? this.floatWinConfig.get(config.win)
+      : undefined;
     const cfg = {
-      row: typeof config.row === 'number' ? config.row : 0,
-      col: typeof config.col === 'number' ? config.col : 0,
+      row: (anchor ? anchor.row : 0) + (typeof config.row === 'number' ? config.row : 0),
+      col: (anchor ? anchor.col : 0) + (typeof config.col === 'number' ? config.col : 0),
       width: typeof config.width === 'number' ? config.width : 20,
       height: typeof config.height === 'number' ? config.height : 10,
-      border: config.border ?? 'rounded',
-      title: config.title !== undefined ? String(config.title ?? '') : undefined,
+      border: config.border ?? 'none',
+      title: config.title !== undefined ? this.flattenWinText(config.title) : undefined,
       title_pos: config.title_pos ?? 'center',
-      footer: config.footer !== undefined ? String(config.footer ?? '') : undefined,
+      footer: config.footer !== undefined ? this.flattenWinText(config.footer) : undefined,
       footer_pos: config.footer_pos ?? 'center',
       zindex: typeof config.zindex === 'number' ? config.zindex : 1000,
     };
@@ -594,15 +623,22 @@ export class VimEngine {
   private nvimWinSetConfig(win: number, config: any) {
     if (!this.floatWinConfig.has(win)) return;
     const prev = this.floatWinConfig.get(win) || {};
+    const anchor = config.relative === 'win' && typeof config.win === 'number'
+      ? this.floatWinConfig.get(config.win)
+      : undefined;
     this.floatWinConfig.set(win, {
       ...prev,
-      row: typeof config.row === 'number' ? config.row : prev.row,
-      col: typeof config.col === 'number' ? config.col : prev.col,
+      row: config.row !== undefined
+        ? (anchor ? anchor.row : 0) + (typeof config.row === 'number' ? config.row : 0)
+        : prev.row,
+      col: config.col !== undefined
+        ? (anchor ? anchor.col : 0) + (typeof config.col === 'number' ? config.col : 0)
+        : prev.col,
       width: typeof config.width === 'number' ? config.width : prev.width,
       height: typeof config.height === 'number' ? config.height : prev.height,
       border: config.border !== undefined ? config.border : prev.border,
-      title: config.title !== undefined ? (typeof config.title === 'string' ? config.title : String(config.title ?? '')) : prev.title,
-      footer: config.footer !== undefined ? (typeof config.footer === 'string' ? config.footer : String(config.footer ?? '')) : prev.footer,
+      title: config.title !== undefined ? this.flattenWinText(config.title) : prev.title,
+      footer: config.footer !== undefined ? this.flattenWinText(config.footer) : prev.footer,
       zindex: typeof config.zindex === 'number' ? config.zindex : prev.zindex,
     });
     this.syncFloatWindow(win);
@@ -663,6 +699,8 @@ export class VimEngine {
     if (!fb) return;
     const o = opts || {};
     fb.extmarks.push({ row: line, col, end_col: typeof o.end_col === 'number' ? o.end_col : col, group: o.hl_group ? String(o.hl_group) : '' });
+    this.syncFloatWindowByBuf(buf);
+    this.onUpdate();
   }
 
   private setFloatOption(buf: number, name: string, value: any) {

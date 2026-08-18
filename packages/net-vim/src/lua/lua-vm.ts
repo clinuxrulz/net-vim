@@ -260,6 +260,32 @@ vim.tbl_contains = function(t, value)
   end
   return false
 end
+-- In-place list extend (Neovim semantics: mutates dest, supports
+-- negative start/end_index relative to the end of src). Implemented in
+-- Lua so the mutation lands on the caller's table instead of a wasmoon
+-- JS copy. dest/src may also be wasmoon JSTable proxies (userdata) that
+-- arrive from JS functions like nvim_get_keymap; indexing, # and writes
+-- route through their metamethods into the underlying JS array.
+vim.list_extend = function(dest, src, start, end_index)
+  local dt, st = type(dest), type(src)
+  if dt ~= 'table' and dt ~= 'userdata' then
+    error('invalid argument: dest should be a list')
+  end
+  if st ~= 'table' and st ~= 'userdata' then
+    error('invalid argument: src should be a list')
+  end
+  local n = #src
+  start = start or 1
+  end_index = end_index or n
+  if start < 0 then start = n + start + 1 end
+  if end_index < 0 then end_index = n + end_index + 1 end
+  start = math.max(1, math.min(n + 1, start))
+  end_index = math.max(0, math.min(n, end_index))
+  for i = start, end_index do
+    dest[#dest + 1] = src[i]
+  end
+  return dest
+end
 vim.isarray = function(t)
   if type(t) ~= 'table' then return false end
   local count = 0

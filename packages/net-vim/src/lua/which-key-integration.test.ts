@@ -121,4 +121,77 @@ describe('which-key.nvim integration (real vendored plugin)', () => {
     const fired = await engine.evalLua(`return vim.g.fired == nil and 'none' or 'some'`);
     expect(fired).toBe('none');
   });
+
+  it('renders popup content, colored extmarks and a win-relative footer', async () => {
+    const engine = await makeEditor();
+    const api: any = engine.getAPI();
+
+    engine.handleKey(' ');
+    expect(await waitFor(() => api.hasPendingLuaChar())).toBe(true);
+    await tick(80); // let which-key's show timer render the popup
+
+    const wins = engine.getState().floatWindows;
+    const view = wins.find((w) => w.zindex === 1000)!;
+    const footer = wins.find((w) => w.zindex === 1001)!;
+
+    // the popup must contain the actual mapping text (not blank padding)
+    const content = view.lines.join('\n');
+    expect(content).toContain('LuaHello');
+    expect(content).toContain('File');
+    expect(content).toContain('l');
+    expect(content).not.toBe('');
+
+    // extmarks must reach the UI state so the popup is colored
+    expect(view.extmarks.length).toBeGreaterThan(0);
+    expect(view.extmarks.some((m) => m.group === 'WhichKey')).toBe(true);
+    expect(view.extmarks.some((m) => m.group === 'WhichKeyDesc')).toBe(true);
+
+    // footer is positioned relative to the popup window (its last row),
+    // not at an absolute screen position
+    expect(footer.row).toBe(view.row + view.height - 1);
+    expect(footer.col).toBe(view.col);
+    expect(footer.border).toBe('none'); // unspecified border must not default to a box
+
+    engine.handleKey('Escape');
+    await tick(60);
+  });
+
+  it('renders the bordered popup title from trail segments', async () => {
+    const engine = new VimEngine(() => {}, () => {});
+    const ok = await engine.loadLuaPluginFromSource('init.lua', INIT_LUA.replace(
+      'delay = 0,',
+      "delay = 0,\n  preset = 'modern',",
+    ));
+    expect(ok).toBe(true);
+    const hasTrigger = await waitFor(() => {
+      const kms = engine.getAPI().getKeymaps?.().some((k) => k.lhs === ' ');
+      if (!kms) {
+        engine.evalLua(`require('which-key.buf').get({ mode = 'n', update = true })`).catch(() => {});
+      }
+      return kms ?? false;
+    });
+    expect(hasTrigger).toBe(true);
+    const api: any = engine.getAPI();
+
+    engine.handleKey(' ');
+    expect(await waitFor(() => api.hasPendingLuaChar())).toBe(true);
+    await tick(80);
+
+    const wins = engine.getState().floatWindows;
+    const view = wins.find((w) => w.zindex === 1000)!;
+    const footer = wins.find((w) => w.zindex === 1001)!;
+
+    // trail title segments arrive as a Lua table; they must be flattened to
+    // a readable title string instead of "[object Object]"
+    expect(typeof view.title).toBe('string');
+    expect(view.title).toContain('Leader');
+    expect(view.title).not.toContain('[object');
+    expect(view.border).toBe('rounded');
+
+    // footer still anchors below the bordered popup
+    expect(footer.row).toBe(view.row + view.height - 1);
+
+    engine.handleKey('Escape');
+    await tick(60);
+  });
 });
