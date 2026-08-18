@@ -96,6 +96,37 @@ await api.loadLuaPluginFromSource('my-plugin', luaSourceString);
 
 Not implemented (deliberately out of scope): `vim.lsp`, `vim.loop`/`vim.uv` libuv bindings, and `vim.fn` functions that require native execution. Plugin authors should also note `vim.wait` uses a busy loop (it does not yield to the browser event loop).
 
+### which-key (`require("which-key")`)
+
+The upstream [folke/which-key.nvim](https://github.com/folke/which-key.nvim) (tag `v3.17.0`, MIT) is bundled and runs unmodified through the Lua runtime. It is resolved from `lua/which-key/**` (a read-only virtual prelude; your `.config/net-vim/lua/which-key/**` files override it).
+
+To use it, call `setup()` from `.config/net-vim/init.lua`:
+
+```lua
+local wk = require('which-key')
+wk.setup({
+  -- plugins that need register/spell APIs Net-Vim does not ship are disabled
+  plugins = { marks = false, registers = false, spelling = { enabled = false } },
+  spec = {
+    { '<leader>', group = 'Leader' },
+    { '<leader>l', '<cmd>LuaHello<CR>', desc = 'LuaHello' },
+    { '<leader>f', group = 'File' },
+    { '<leader>ff', '<cmd>fuzzyFiles<CR>', desc = 'Fuzzy find' },
+  },
+})
+```
+
+Press `<leader>` (space by default) to open a popup listing your leader mappings; type the next key to drill into a group (type-to-filter), use `j`/`k`/arrows to navigate, `<CR>` to run a leaf, `<BS>` to go back, `<Esc>` to close. `:WhichKey [mode] [keys]` also opens a popup directly.
+
+How it works under the hood:
+
+- **Blocking `getchar`**: which-key drives type-to-filter with a blocking `vim.fn.getcharstr()` loop. Net-Vim runs every Lua keymap callback inside a Lua coroutine; when the plugin calls `getcharstr` and no key is queued, the coroutine yields and the engine resumes it on the next `handleKey` (the same semantics as Neovim's `getchar`).
+- **Floating windows**: `nvim_open_win`/`nvim_win_set_config`/… are backed by an in-engine float-window registry rendered as a TUI overlay (like the picker), so the popup and its footer draw without needing a window model.
+- **Keymap introspection**: `vim.api.nvim_get_keymap`, `vim.fn.maparg`, `vim.keymap.set/del` (with `desc`/`nowait`/`buffer`), `vim.fn.replace_termcodes` and the Lua table helpers (`vim.tbl_*`, `vim.deepcopy`, `vim.split`, `vim.deep_extend`…) are implemented consistently with the engine's key-map matching. `<leader>` expands to the literal leader key (`' '`), `<C-x>` stays a single key token, and `nvim_get_mode` returns Neovim-style mode letters.
+- **`vim.uv` timers** and `vim.schedule_wrap` round out the runtime the plugin relies on.
+
+The vendored source lives in `packages/net-vim/src/lua-plugins/which-key/` and is shipped via the bundled module loader (`src/lua-plugins/index.ts`).
+
 ### Treesitter (`vim.treesitter`)
 
 Net-Vim also embeds a tree-sitter runtime (`web-tree-sitter`), exposed to Lua through `vim.treesitter.*`:

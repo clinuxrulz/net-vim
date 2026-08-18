@@ -73,6 +73,36 @@ export interface PickerOptions {
   placeholder?: string;
 }
 
+export interface FloatWindow {
+  id: number;
+  buf: number;
+  win: number;
+  lines: string[];
+  row: number;
+  col: number;
+  width: number;
+  height: number;
+  border?: string | string[] | boolean;
+  title?: string;
+  title_pos?: string;
+  footer?: string;
+  footer_pos?: string;
+  zindex: number;
+  extmarks: { row: number; col: number; end_col: number; group: string }[];
+}
+
+export interface KeymapEntry {
+  mode: string;
+  lhs: string;
+  raw?: string;
+  desc?: string;
+  nowait?: boolean;
+  silent?: boolean;
+  noremap?: boolean;
+  buffer?: number;
+  callback?: () => void;
+}
+
 export interface VimState {
   buffer: string[];
   cursor: { x: number; y: number };
@@ -100,6 +130,7 @@ export interface VimState {
   statusMessage: string | null;
   wrap: boolean;
   lineEnding: 'LF' | 'CRLF';
+  floatWindows: FloatWindow[];
   picker: {
     active: boolean;
     query: string;
@@ -123,6 +154,10 @@ export interface VimAPI {
   registerKeymap: (mode: string, lhs: string, callback: () => void, opts?: any) => void;
   delKeymap: (mode: string, lhs: string) => void;
   setLeader: (key: string) => void;
+  getLeader?: () => string;
+  getKeymaps?: () => KeymapEntry[];
+  feedKeys?: (seq: string) => void;
+  getViewport?: () => { width: number; height: number };
   showMessage: (msg: string) => void;
   getBuffer: () => string[];
   setBuffer: (buffer: string[]) => void;
@@ -157,6 +192,29 @@ export interface VimAPI {
   // Picker API
   showPicker: (options: PickerOptions) => void;
   hidePicker: () => void;
+
+  // Floating window / buffer shim (which-key, etc.)
+  nvimCreateBuf?: (listed: boolean, scratch: boolean) => number;
+  nvimOpenWin?: (buf: number, enter: boolean, config: any) => number;
+  nvimWinSetConfig?: (win: number, config: any) => void;
+  nvimWinGetConfig?: (win: number) => any;
+  nvimWinClose?: (win: number, force: boolean) => void;
+  nvimBufDelete?: (buf: number, opts?: any) => void;
+  nvimWinIsValid?: (win: number) => boolean;
+  nvimBufIsValid?: (buf: number) => boolean;
+  nvimWinGetBuf?: (win: number) => number;
+  nvimWinGetHeight?: (win: number) => number;
+  nvimBufLineCount?: (buf: number) => number;
+  nvimBufIsFloat?: (buf: number) => boolean;
+  nvimBufSetLines?: (buf: number, start: number, end: number, strict: boolean, lines: string[] | null) => void;
+  nvimBufSetOption?: (buf: number, name: string, value: any) => void;
+  nvimWinSetOption?: (win: number, name: string, value: any) => void;
+  nvimSetFloatExtmark?: (buf: number, line: number, col: number, opts: any) => void;
+
+  // Coroutine / getchar bridge
+  runLuaInCoroutine?: (cb: () => void) => void;
+  hasPendingLuaChar?: () => boolean;
+  resumeLuaChar?: (key: string) => void;
 
   // File System
   setFS: (fs: FileSystem) => void;

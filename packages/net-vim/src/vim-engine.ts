@@ -1,5 +1,5 @@
 import { PluginManager } from './plugin-manager';
-import type { VimMode, VimEvent, VimAPI, GutterOptions, CompletionItem, FileSystem, ContextMenuItem, VimState, LineRendererOptions, PickerItem, PickerOptions } from './types';
+import type { VimMode, VimEvent, VimAPI, GutterOptions, CompletionItem, FileSystem, ContextMenuItem, VimState, LineRendererOptions, PickerItem, PickerOptions, FloatWindow, KeymapEntry } from './types';
 import { autoFS, PRELUDE_BASE } from './opfs-util';
 
 export class VimEngine {
@@ -28,8 +28,16 @@ export class VimEngine {
   private fs: FileSystem = autoFS;
   private leader = ' '; // Set leader to space as requested
   private pendingSequence = '';
-  private luaKeymaps: Array<{ mode: string; lhs: string; callback: () => void }> = [];
+  private luaKeymaps: Array<{ mode: string; lhs: string; callback: () => void; raw?: string; desc?: string; nowait?: boolean; silent?: boolean; noremap?: boolean; buffer?: number }> = [];
   private isInitialized = false;
+  private insideHandleKey = false;
+  private typeahead: Array<{ key: string; ctrl: boolean }> = [];
+  private floatWindows: FloatWindow[] = [];
+  private nextBufId = 1000;
+  private nextWinId = 1000;
+  private floatBuffers = new Map<number, { lines: string[]; extmarks: any[]; options: Record<string, any> }>();
+  private floatWinBuf = new Map<number, number>();
+  private floatWinConfig = new Map<number, any>();
 
   // Completion & Hover State
   private completionItems: CompletionItem[] = [];
@@ -157,6 +165,10 @@ export class VimEngine {
     this.commands['help'] = async () => {
       await this.openFile(PRELUDE_BASE + '/help.md');
     };
+
+    this.commands['redraw'] = () => {
+      this.onUpdate();
+    };
   }
 
   private async openDirectory(path: string) {
@@ -231,9 +243,13 @@ export class VimEngine {
       getLoadedPlugins: () => this.pluginManager.getLoadedPlugins(),
       getLoadedLuaPlugins: () => this.pluginManager.getLoadedLuaPlugins(),
       delCommand: (name) => { delete this.commands[name]; },
-      registerKeymap: (mode, lhs, callback) => this.registerLuaKeymap(mode, lhs, callback),
+      registerKeymap: (mode, lhs, callback, opts) => this.registerLuaKeymap(mode, lhs, callback, opts),
       delKeymap: (mode, lhs) => this.delLuaKeymap(mode, lhs),
       setLeader: (key) => this.setLeader(key),
+      getLeader: () => this.leader,
+      getKeymaps: () => this.getKeymaps(),
+      feedKeys: (seq) => this.feedKeys(seq),
+      getViewport: () => ({ width: this.viewportWidth, height: this.viewportHeight }),
       showMessage: (msg) => this.showMessage(msg),
       registerGutter: (options: GutterOptions) => {
         console.log(`[VimEngine] Registering gutter: ${options.name}`, options);
@@ -278,6 +294,29 @@ export class VimEngine {
       },
       insertText: (text) => this.insertText(text),
       rerender: () => this.onUpdate(),
+
+      // Floating window / buffer shim (which-key popup, etc.)
+      nvimCreateBuf: (listed) => this.nvimCreateBuf(listed),
+      nvimOpenWin: (buf, enter, config) => this.nvimOpenWin(buf, enter, config),
+      nvimWinSetConfig: (win, config) => this.nvimWinSetConfig(win, config),
+      nvimWinGetConfig: (win) => this.nvimWinGetConfig(win),
+      nvimWinClose: (win, force) => this.nvimWinClose(win, force),
+      nvimBufDelete: (buf) => this.nvimBufDelete(buf),
+      nvimWinIsValid: (win) => this.nvimWinIsValid(win),
+      nvimBufIsValid: (buf) => this.nvimBufIsValid(buf),
+      nvimWinGetBuf: (win) => this.floatWinBuf.get(win) ?? 1,
+      nvimWinGetHeight: (win) => this.nvimWinGetHeight(win),
+      nvimBufLineCount: (buf) => this.nvimBufLineCount(buf),
+      nvimBufIsFloat: (buf) => this.floatBuffers.has(buf),
+      nvimBufSetLines: (buf, _start, _end, _strict, lines) => this.nvimFloatSetLines(buf, lines || []),
+      nvimBufSetOption: (buf, name, value) => { this.setFloatOption(buf, name, value); },
+      nvimWinSetOption: (win, name, value) => { this.setFloatOption(this.floatWinBuf.get(win) ?? 0, name, value); },
+      nvimSetFloatExtmark: (buf, line, col, opts) => this.nvimFloatSetExtmark(buf, line, col, opts),
+
+      // Coroutine / blocking-getchar bridge
+      runLuaInCoroutine: (cb) => this.pluginManager.invokeKeymap(cb),
+      hasPendingLuaChar: () => this.pluginManager.hasPendingLuaChar(),
+      resumeLuaChar: (key) => this.pluginManager.resumeLuaChar(key),
 
       showPicker: (options) => {
         this.pickerActive = true;
@@ -433,9 +472,19 @@ export class VimEngine {
     this.leader = key;
   }
 
-  public registerLuaKeymap(mode: string, lhs: string, callback: () => void) {
+  public registerLuaKeymap(mode: string, lhs: string, callback: () => void, opts?: any) {
     this.luaKeymaps = this.luaKeymaps.filter(k => !(k.mode === mode && k.lhs === lhs));
-    this.luaKeymaps.push({ mode, lhs, callback });
+    this.luaKeymaps.push({
+      mode,
+      lhs,
+      callback,
+      raw: opts && opts.raw !== undefined ? String(opts.raw) : undefined,
+      desc: opts && opts.desc !== undefined ? String(opts.desc) : undefined,
+      nowait: !!(opts && opts.nowait),
+      silent: !!(opts && opts.silent),
+      noremap: !!(opts && opts.noremap),
+      buffer: opts && typeof opts.buffer === 'number' ? opts.buffer : undefined,
+    });
   }
 
   public delLuaKeymap(mode: string, lhs: string) {
@@ -444,6 +493,226 @@ export class VimEngine {
       return;
     }
     this.luaKeymaps = this.luaKeymaps.filter(k => !(k.mode === mode && k.lhs === lhs));
+  }
+
+  public getKeymaps(): KeymapEntry[] {
+    return this.luaKeymaps.map((k) => ({
+      mode: k.mode,
+      lhs: k.lhs,
+      raw: k.raw ?? k.lhs,
+      desc: k.desc,
+      nowait: k.nowait,
+      silent: k.silent,
+      noremap: k.noremap,
+      buffer: k.buffer,
+      callback: k.callback,
+    } as KeymapEntry));
+  }
+
+  /**
+   * Feeds a key sequence (as produced by nvim_replace_termcodes, e.g. ' ff'
+   * or '<C-W>x') into the editor by enqueueing it on the typeahead queue.
+   */
+  feedKeys(seq: string) {
+    const tokens = this.parseFeedKeys(seq);
+    for (const t of tokens) this.typeahead.push(t);
+    if (!this.insideHandleKey) this.drainTypeahead();
+  }
+
+  private parseFeedKeys(seq: string): Array<{ key: string; ctrl: boolean }> {
+    const out: Array<{ key: string; ctrl: boolean }> = [];
+    let rest = seq;
+    while (rest.length > 0) {
+      const m = /^<([^>]*)>/.exec(rest);
+      if (!m) {
+        out.push({ key: rest[0], ctrl: false });
+        rest = rest.slice(1);
+        continue;
+      }
+      const inner = m[1];
+      const innerLower = inner.toLowerCase();
+      rest = rest.slice(m[0].length);
+      if (innerLower === 'lt') { out.push({ key: '<', ctrl: false }); continue; }
+      if (innerLower === 'space' || innerLower === 'leader' || innerLower === 'localleader') {
+        out.push({ key: this.leader, ctrl: false });
+        continue;
+      }
+      if (innerLower.startsWith('c-s-')) {
+        out.push({ key: inner.slice(4).toLowerCase(), ctrl: true });
+        continue;
+      }
+      if (innerLower.startsWith('c-')) {
+        const k = inner.slice(2);
+        out.push({ key: k === 'space' ? ' ' : k.toLowerCase(), ctrl: true });
+        continue;
+      }
+      switch (innerLower) {
+        case 'esc': out.push({ key: 'Escape', ctrl: false }); break;
+        case 'cr': case 'enter': case 'return': out.push({ key: 'Enter', ctrl: false }); break;
+        case 'bs': case 'backspace': out.push({ key: 'Backspace', ctrl: false }); break;
+        case 'tab': out.push({ key: 'Tab', ctrl: false }); break;
+        case 'up': out.push({ key: 'ArrowUp', ctrl: false }); break;
+        case 'down': out.push({ key: 'ArrowDown', ctrl: false }); break;
+        case 'left': out.push({ key: 'ArrowLeft', ctrl: false }); break;
+        case 'right': out.push({ key: 'ArrowRight', ctrl: false }); break;
+        default:
+          for (const ch of inner) out.push({ key: ch, ctrl: false });
+      }
+    }
+    return out;
+  }
+
+  // ---- Floating window / buffer shim ------------------------------------
+  private nvimCreateBuf(_listed: boolean): number {
+    const buf = this.nextBufId++;
+    this.floatBuffers.set(buf, { lines: [], extmarks: [], options: {} });
+    return buf;
+  }
+
+  private nvimOpenWin(buf: number, _enter: boolean, config: any): number {
+    if (!this.floatBuffers.has(buf)) this.floatBuffers.set(buf, { lines: [], extmarks: [], options: {} });
+    const win = this.nextWinId++;
+    this.floatWinBuf.set(win, buf);
+    const cfg = {
+      row: typeof config.row === 'number' ? config.row : 0,
+      col: typeof config.col === 'number' ? config.col : 0,
+      width: typeof config.width === 'number' ? config.width : 20,
+      height: typeof config.height === 'number' ? config.height : 10,
+      border: config.border ?? 'rounded',
+      title: config.title !== undefined ? String(config.title ?? '') : undefined,
+      title_pos: config.title_pos ?? 'center',
+      footer: config.footer !== undefined ? String(config.footer ?? '') : undefined,
+      footer_pos: config.footer_pos ?? 'center',
+      zindex: typeof config.zindex === 'number' ? config.zindex : 1000,
+    };
+    this.floatWinConfig.set(win, cfg);
+    this.syncFloatWindow(win);
+    this.onUpdate();
+    return win;
+  }
+
+  private nvimWinSetConfig(win: number, config: any) {
+    if (!this.floatWinConfig.has(win)) return;
+    const prev = this.floatWinConfig.get(win) || {};
+    this.floatWinConfig.set(win, {
+      ...prev,
+      row: typeof config.row === 'number' ? config.row : prev.row,
+      col: typeof config.col === 'number' ? config.col : prev.col,
+      width: typeof config.width === 'number' ? config.width : prev.width,
+      height: typeof config.height === 'number' ? config.height : prev.height,
+      border: config.border !== undefined ? config.border : prev.border,
+      title: config.title !== undefined ? (typeof config.title === 'string' ? config.title : String(config.title ?? '')) : prev.title,
+      footer: config.footer !== undefined ? (typeof config.footer === 'string' ? config.footer : String(config.footer ?? '')) : prev.footer,
+      zindex: typeof config.zindex === 'number' ? config.zindex : prev.zindex,
+    });
+    this.syncFloatWindow(win);
+    this.onUpdate();
+  }
+
+  private nvimWinGetConfig(win: number) {
+    return this.floatWinConfig.get(win) || {};
+  }
+
+  private nvimWinClose(win: number, _force: boolean) {
+    const buf = this.floatWinBuf.get(win);
+    if (buf !== undefined) this.floatBuffers.delete(buf);
+    this.floatWinBuf.delete(win);
+    this.floatWinConfig.delete(win);
+    this.syncFloatWindows();
+    this.onUpdate();
+  }
+
+  private nvimBufDelete(buf: number) {
+    if (!this.floatBuffers.has(buf)) return;
+    this.floatBuffers.delete(buf);
+    const wins = Array.from(this.floatWinBuf.entries()).filter(([, b]) => b === buf).map(([w]) => w);
+    for (const w of wins) { this.floatWinBuf.delete(w); this.floatWinConfig.delete(w); }
+    this.syncFloatWindows();
+    this.onUpdate();
+  }
+
+  private nvimWinIsValid(win: number) {
+    return this.floatWinBuf.has(win);
+  }
+
+  private nvimBufIsValid(buf: number) {
+    return this.floatBuffers.has(buf) || buf === 1;
+  }
+
+  private nvimWinGetHeight(win: number) {
+    const cfg = this.floatWinConfig.get(win);
+    return cfg ? cfg.height : this.viewportHeight - 2;
+  }
+
+  private nvimBufLineCount(buf: number) {
+    const fb = this.floatBuffers.get(buf);
+    return fb ? fb.lines.length : this.buffer.length;
+  }
+
+  private nvimFloatSetLines(buf: number, lines: string[]) {
+    const fb = this.floatBuffers.get(buf);
+    if (!fb) return;
+    fb.lines = (lines || []).map((l) => String(l));
+    fb.extmarks = [];
+    this.syncFloatWindowByBuf(buf);
+    this.onUpdate();
+  }
+
+  private nvimFloatSetExtmark(buf: number, line: number, col: number, opts: any) {
+    const fb = this.floatBuffers.get(buf);
+    if (!fb) return;
+    const o = opts || {};
+    fb.extmarks.push({ row: line, col, end_col: typeof o.end_col === 'number' ? o.end_col : col, group: o.hl_group ? String(o.hl_group) : '' });
+  }
+
+  private setFloatOption(buf: number, name: string, value: any) {
+    if (!this.floatBuffers.has(buf)) return;
+    const fb = this.floatBuffers.get(buf)!;
+    fb.options[name] = value;
+    this.onUpdate();
+  }
+
+  private syncFloatWindow(win: number) {
+    if (!this.floatWinBuf.has(win)) return;
+    const buf = this.floatWinBuf.get(win)!;
+    this.syncFloatWindowByBuf(buf);
+  }
+
+  private syncFloatWindowByBuf(buf: number) {
+    const fb = this.floatBuffers.get(buf);
+    if (!fb) return;
+    for (const [win, wbuf] of this.floatWinBuf.entries()) {
+      if (wbuf !== buf) continue;
+      const cfg = this.floatWinConfig.get(win);
+      if (!cfg) continue;
+      const idx = this.floatWindows.findIndex((f) => f.id === win);
+      const entry: FloatWindow = {
+        id: win,
+        buf,
+        win,
+        lines: fb.lines,
+        row: cfg.row,
+        col: cfg.col,
+        width: cfg.width,
+        height: cfg.height,
+        border: cfg.border,
+        title: cfg.title,
+        title_pos: cfg.title_pos,
+        footer: cfg.footer,
+        footer_pos: cfg.footer_pos,
+        zindex: cfg.zindex,
+        extmarks: fb.extmarks.map((e) => ({ ...e })),
+      };
+      if (idx === -1) this.floatWindows.push(entry);
+      else this.floatWindows[idx] = entry;
+      this.floatWindows.sort((a, b) => a.zindex - b.zindex);
+    }
+  }
+
+  private syncFloatWindows() {
+    this.floatWindows = [];
+    for (const win of this.floatWinBuf.keys()) this.syncFloatWindow(win);
+    this.floatWindows.sort((a, b) => a.zindex - b.zindex);
   }
 
   public async loadPluginFromSource(name: string, tsSource: string) {
@@ -499,6 +768,7 @@ export class VimEngine {
       statusMessage: this.statusMessage,
       wrap: this.wrap,
       lineEnding: this.lineEnding,
+      floatWindows: this.floatWindows.map((f) => ({ ...f, lines: [...f.lines] })),
       picker: this.pickerActive ? {
         active: true,
         query: this.pickerQuery,
@@ -521,7 +791,32 @@ export class VimEngine {
   }
 
   public handleKey(key: string, _ctrl: boolean = false) {
+    this.insideHandleKey = true;
+    try {
+      this.handleKeyInner(key, _ctrl);
+    } finally {
+      this.insideHandleKey = false;
+      this.drainTypeahead();
+    }
+  }
+
+  private drainTypeahead() {
+    while (this.typeahead.length > 0) {
+      if (this.pluginManager.hasPendingLuaChar()) return; // pause for interactive input
+      const item = this.typeahead.shift()!;
+      this.handleKeyInner(item.key, item.ctrl);
+    }
+  }
+
+  private handleKeyInner(key: string, _ctrl: boolean = false) {
     this.trigger('KeyDown', { key, ctrl: _ctrl });
+
+    // A Lua coroutine (e.g. which-key's blocking getchar) is waiting for input.
+    if (this.pluginManager.hasPendingLuaChar()) {
+      const notation = this.engineKeyToLuaKey(key, _ctrl);
+      this.pluginManager.resumeLuaChar(notation);
+      return;
+    }
 
     // Handle Picker if active
     if (this.pickerActive) {
@@ -733,25 +1028,44 @@ export class VimEngine {
     }
   }
 
+  private seqKey(key: string, ctrl: boolean): string {
+    if (ctrl) {
+      return '<C-' + (key === ' ' ? 'Space' : key.toUpperCase()) + '>';
+    }
+    if (key === this.leader) return this.leader;
+    switch (key) {
+      case 'Escape': return '<Esc>';
+      case 'Enter': return '<CR>';
+      case 'Backspace': return '<BS>';
+      case 'Tab': return '<Tab>';
+      case 'ArrowUp': return '<Up>';
+      case 'ArrowDown': return '<Down>';
+      case 'ArrowLeft': return '<Left>';
+      case 'ArrowRight': return '<Right>';
+      default: return key;
+    }
+  }
+
+  /** Maps a DOM/engine key event to the key-string fed to the Lua getchar bridge. */
+  private engineKeyToLuaKey(key: string, ctrl: boolean): string {
+    return this.seqKey(key, ctrl);
+  }
+
   private handleNormalMode(key: string, ctrl: boolean) {
     let currentSeq = this.pendingSequence;
-    if (ctrl) {
-      currentSeq += 'Ctrl-' + key;
-    } else if (key === this.leader) {
-      currentSeq += 'leader';
-    } else {
-      currentSeq += key;
-    }
+    currentSeq += this.seqKey(key, ctrl);
 
     // Plugin/Lua keymaps take priority over built-in sequences.
     const luaMatch = this.luaKeymaps.find(k => k.mode === 'n' && k.lhs === currentSeq);
     if (luaMatch) {
       this.pendingSequence = '';
-      try {
-        luaMatch.callback();
-      } catch (err) {
-        console.error('[VimEngine] keymap callback error:', err);
-      }
+      this.pluginManager.invokeKeymap(() => {
+        try {
+          luaMatch.callback();
+        } catch (err) {
+          console.error('[VimEngine] keymap callback error:', err);
+        }
+      });
       return;
     }
     const luaPrefix = this.luaKeymaps.find(
@@ -763,40 +1077,40 @@ export class VimEngine {
     }
 
     // Check for sequences
-    if (currentSeq === 'Ctrl-w') {
-      this.pendingSequence = 'Ctrl-w';
+    if (currentSeq === '<C-W>') {
+      this.pendingSequence = '<C-W>';
       return;
     }
-    if (currentSeq === 'Ctrl-wd') {
+    if (currentSeq === '<C-W>d') {
       this.pendingSequence = '';
       this.executeCommand('showDiagnostics');
       return;
     }
 
-    if (currentSeq === 'leader') {
-      this.pendingSequence = 'leader';
+    if (currentSeq === this.leader) {
+      this.pendingSequence = this.leader;
       return;
     }
-    if (currentSeq === 'leaderd') {
+    if (currentSeq === this.leader + 'd') {
       this.pendingSequence = '';
       this.executeCommand('showDiagnostics');
       return;
     }
-    if (currentSeq === 'leadere') {
+    if (currentSeq === this.leader + 'e') {
       this.pendingSequence = '';
       this.executeCommand('hover');
       return;
     }
-    if (currentSeq === 'leaderf') {
-      this.pendingSequence = 'leaderf';
+    if (currentSeq === this.leader + 'f') {
+      this.pendingSequence = this.leader + 'f';
       return;
     }
-    if (currentSeq === 'leaderff') {
+    if (currentSeq === this.leader + 'ff') {
       this.pendingSequence = '';
       this.executeCommand('fuzzyFiles');
       return;
     }
-    if (currentSeq === 'leaderfg') {
+    if (currentSeq === this.leader + 'fg') {
       this.pendingSequence = '';
       this.executeCommand('liveGrep');
       return;

@@ -18,3 +18,8 @@ declare module 'wasmoon' {
   export const decorateFunction: any;
   export const decorateUserdata: any;
 }
+
+declare module '*.lua?raw' {
+  const content: string;
+  export default content;
+}

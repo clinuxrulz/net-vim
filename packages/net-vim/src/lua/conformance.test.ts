@@ -36,6 +36,10 @@ const backend: LuaBackend & { runCommand: (name: string, args: string[]) => void
   schedule: (cb) => setTimeout(cb, 0),
   defer: (cb) => setTimeout(cb, 0),
   showMessage: (m) => log.push(`msg:${m}`),
+  getLeader: () => ' ',
+  getKeymaps: () => keymaps.map(([mode, lhs]) => ({ mode, lhs })),
+  getViewport: () => ({ width: 80, height: 24 }),
+  feedKeys: () => {},
   fs: null,
   runCommand: (name, args) => commands.get(name)!(args),
 };
@@ -66,7 +70,7 @@ describe('conformance: real plugin patterns', () => {
       return M
     `);
     expect(ok).toBe(true);
-    expect(keymaps).toContainEqual(['n', 'leaderbd']);
+    expect(keymaps).toContainEqual(['n', ' bd']);
     expect(log).toContain('reg:Bdelete');
     expect(eventHandlers['FileChanged']).toBeTypeOf('function');
     const result = await vm.run(`return require('bufdelete').bdelete()`);

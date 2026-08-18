@@ -43,6 +43,10 @@ function makeBackend(): LuaBackend {
     schedule: (cb) => setTimeout(cb, 0),
     defer: (cb, ms) => setTimeout(cb, ms),
     showMessage: () => {},
+    getLeader: () => ' ',
+    getKeymaps: () => [],
+    getViewport: () => ({ width: 80, height: 24 }),
+    feedKeys: () => {},
     fs: null,
   };
 }

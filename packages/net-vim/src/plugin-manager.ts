@@ -49,6 +49,7 @@ export class PluginManager {
   private pluginStates: Map<string, Map<string, any>> = new Map();
   private getBaseAPI: () => VimAPI;
   private luaVM: Promise<LuaPluginVM> | null = null;
+  private resolvedLuaVM: LuaPluginVM | null = null;
   private luaPlugins: Set<string> = new Set();
 
   constructor(getBaseAPI: () => VimAPI) {
@@ -65,10 +66,49 @@ export class PluginManager {
           registerLineRenderer: (opts) => api.registerLineRenderer(opts),
           rerender: () => api.rerender(),
         });
+        this.resolvedLuaVM = vm;
         return vm;
-      })();
+      })().catch((err) => {
+        this.resolvedLuaVM = null;
+        throw err;
+      });
     }
     return this.luaVM;
+  }
+
+  /**
+   * Synchronous access to the already-initialized Lua VM (used for key routing).
+   */
+  getSyncedLuaVM(): LuaPluginVM | null {
+    return this.resolvedLuaVM;
+  }
+
+  /**
+   * Runs a Lua keymap callback through the coroutine-aware bridge. Used by the
+   * engine when a (Lua-registered) keymap fires.
+   */
+  invokeKeymap(cb: () => void): void {
+    const vm = this.getSyncedLuaVM();
+    if (!vm) {
+      try { cb(); } catch (err) { console.error('[PluginManager] keymap callback error:', err); }
+      return;
+    }
+    vm.invokeKeymapCallback(cb);
+    const api = this.getBaseAPI();
+    const resume = (api as any).resumeLuaChar;
+    if (typeof resume === 'function' && vm.hasPendingChar()) {
+      // Nothing to do yet; the engine polls hasPendingLuaChar on the next key.
+    }
+  }
+
+  hasPendingLuaChar(): boolean {
+    const vm = this.getSyncedLuaVM();
+    return vm ? vm.hasPendingChar() : false;
+  }
+
+  resumeLuaChar(key: string): void {
+    const vm = this.getSyncedLuaVM();
+    if (vm) vm.resumeWithChar(key);
   }
 
   /**

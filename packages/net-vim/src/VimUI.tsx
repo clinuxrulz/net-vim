@@ -1,5 +1,5 @@
 import { For, Show, type Component, createEffect, Index } from 'solid-js';
-import type { VimMode, GutterOptions, LineRendererOptions } from './types';
+import type { VimMode, GutterOptions, LineRendererOptions, FloatWindow } from './types';
 
 interface VimUIProps {
   buffer: string[] | (() => string[]);
@@ -28,6 +28,7 @@ interface VimUIProps {
   wrap: boolean | (() => boolean);
   lineEnding: 'LF' | 'CRLF' | (() => 'LF' | 'CRLF');
   picker?: (() => any) | any;
+  floatWindows?: FloatWindow[] | (() => FloatWindow[]);
   onCursorChange?: (cursor: { x: number; y: number }) => void;
 }
 
@@ -59,6 +60,7 @@ export const VimUI: Component<VimUIProps> = (props) => {
   const wrap = () => getProp(props.wrap);
   const lineEnding = () => getProp(props.lineEnding);
   const picker = () => (props as any).picker ? (props as any).picker() : null;
+  const floatWindows = () => getProp(props.floatWindows || []);
 
   const statusLineY = () => height() - 2;
   const commandLineY = () => height() - 1;
@@ -424,6 +426,69 @@ export const VimUI: Component<VimUIProps> = (props) => {
           </For>
         </tui-box>
       </Show>
+
+      {/* Floating windows (which-key popup etc.) */}
+      <For each={floatWindows()}>
+        {(win) => {
+          const colorFor = (group: string) => {
+            const g = String(group || '');
+            const lg = g.toLowerCase();
+            if (lg.includes('title')) return '#c678dd';
+            if (lg.includes('border')) return '#61afef';
+            if (lg.includes('group')) return '#e5c07b';
+            if (lg.includes('separator')) return '#5c6370';
+            if (lg.includes('desc')) return '#abb2bf';
+            if (lg.includes('key')) return '#61afef';
+            return '#cccccc';
+          };
+          const visibleHeight = Math.max(0, win.height);
+          const visibleLines = win.lines.slice(0, visibleHeight);
+          const rowSegments = (rowIndex: number) => {
+            const line = visibleLines[rowIndex] ?? '';
+            const marks = win.extmarks
+              .filter((m) => m.row === rowIndex && m.col < line.length)
+              .sort((a, b) => a.col - b.col);
+            const segments: Array<{ from: number; to: number; color: string }> = [];
+            let cursor = 0;
+            for (const m of marks) {
+              const start = m.col;
+              if (start > cursor) segments.push({ from: cursor, to: start, color: '#cccccc' });
+              const end = Math.max(start, Math.min(line.length, m.end_col));
+              segments.push({ from: start, to: end, color: colorFor(m.group) });
+              cursor = end;
+            }
+            if (cursor < line.length) segments.push({ from: cursor, to: line.length, color: '#cccccc' });
+            return segments;
+          };
+          return (
+            <tui-box
+              x={win.col}
+              y={win.row}
+              width={win.width}
+              height={Math.max(win.height, 1)}
+              border={win.border === false || win.border === 'none' ? false : true}
+              title={typeof win.title === 'string' ? win.title : undefined}
+            >
+              <Index each={visibleLines}>
+                {(_, rowIndex) => (
+                  <tui-box x={1} y={rowIndex} width={Math.max(1, win.width - 2)} height={1}>
+                    <For each={rowSegments(rowIndex)}>
+                      {(seg) => (
+                        <tui-text
+                          x={(seg as any).from}
+                          y={0}
+                          content={visibleLines[rowIndex]?.slice((seg as any).from, (seg as any).to) ?? ''}
+                          color={(seg as any).color}
+                        />
+                      )}
+                    </For>
+                  </tui-box>
+                )}
+              </Index>
+            </tui-box>
+          );
+        }}
+      </For>
 
       {/* Picker Overlay */}
       <Show when={picker() && picker().active}>

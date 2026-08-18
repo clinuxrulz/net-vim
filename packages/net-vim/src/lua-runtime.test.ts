@@ -26,6 +26,10 @@ function makeBackend(overrides: Partial<LuaBackend> = {}): LuaBackend {
     schedule: (cb) => { setTimeout(cb, 0); },
     defer: (cb, ms) => { setTimeout(cb, ms); },
     showMessage: (msg) => { log.push(`msg:${msg}`); },
+    getLeader: () => ' ',
+    getKeymaps: () => [],
+    getViewport: () => ({ width: 80, height: 24 }),
+    feedKeys: () => {},
     fs: null,
     ...overrides,
   };

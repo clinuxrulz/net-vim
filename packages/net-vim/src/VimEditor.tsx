@@ -41,6 +41,25 @@ end, {})
 vim.keymap.set('n', '<leader>l', function()
   vim.api.nvim_command('LuaHello')
 end, {})
+
+-- which-key: type <space> to browse leader mappings, or e.g. <space>f to
+-- drill into the File group (type-to-filter, arrows/j/k to navigate, <CR> to
+-- run, <BS> to go back, <Esc> to close).
+local wk = require('which-key')
+wk.setup({
+  plugins = {
+    marks = false,        -- needs register APIs Net-Vim does not ship
+    registers = false,    -- needs register APIs Net-Vim does not ship
+    spelling = { enabled = false }, -- needs spell APIs Net-Vim does not ship
+  },
+  spec = {
+    { '<leader>', group = 'Leader' },
+    { '<leader>l', '<cmd>LuaHello<CR>', desc = 'LuaHello' },
+    { '<leader>f', group = 'File' },
+    { '<leader>ff', '<cmd>fuzzyFiles<CR>', desc = 'Fuzzy find' },
+    { '<leader>fg', '<cmd>liveGrep<CR>', desc = 'Live grep' },
+  },
+})
 `;
 
 export const DEFAULT_INIT = `
@@ -156,6 +175,7 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
     commandCursorX: 0,
     wrap: false,
     lineEnding: 'LF',
+    floatWindows: [],
     picker: null,
   });
 
@@ -395,6 +415,7 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
       wrap={() => vimState().wrap}
       lineEnding={() => vimState().lineEnding}
       picker={() => vimState().picker}
+      floatWindows={() => vimState().floatWindows}
       width={() => gridDim().width}
       height={() => gridDim().height}
       onCursorChange={(c) => setVisualCursor(c)}

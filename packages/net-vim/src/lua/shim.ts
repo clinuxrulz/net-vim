@@ -48,6 +48,19 @@ export function isEmptyDict(value: any): boolean {
   return value !== undefined && value !== null && typeof value === 'object' && value.__netvimEmptyDict === true;
 }
 
+export function vimModeToLetter(m: string): string {
+  switch ((m || '').toLowerCase()) {
+    case 'insert': return 'i';
+    case 'visual': return 'v';
+    case 'command': return 'c';
+    case 'search': return 'c';
+    case 'normal': return 'n';
+    default: return (m || 'n')[0] ?? 'n';
+  }
+}
+
+const notifyOnceSeen = new Set<string>();
+
 function isVimValue(value: any): boolean {
   return value !== undefined && value !== null && typeof value === 'object'
     && (value.__netvimNil === true || value.__netvimEmptyDict === true);
@@ -67,9 +80,18 @@ export class VimShim {
       vars: {},
       bufVars: { 1: {} },
       winVars: { 1: {} },
-      vVars: {},
+      vVars: {
+        count: 0,
+        register: '"',
+        operator: '',
+        vim_did_enter: 1,
+        prevcount: 0,
+      },
       env: {},
-      options: {},
+      options: {
+        timeoutlen: 1000,
+        timeout: false,
+      },
       augroups: new Map(),
       autocmds: new Map(),
       namespaces: new Map(),
@@ -94,7 +116,13 @@ export class VimShim {
   }
 
   private optionGet(name: string): any {
-    return this.state.options[name];
+    const n = String(name);
+    if (n in this.state.options) return this.state.options[n];
+    // Dynamic options backed by the live viewport
+    if (n === 'columns') return this.backend.getViewport().width;
+    if (n === 'lines') return this.backend.getViewport().height;
+    if (n === 'cmdheight') return 1;
+    return undefined;
   }
 
   private buildVim(): Record<string, any> {
@@ -119,6 +147,39 @@ export class VimShim {
     }), { proxy: true });
 
     const o = decorateProxy(new Proxy({}, {
+      get: (_t, prop) => { if (typeof prop === 'symbol') return undefined; return this.optionGet(String(prop)); },
+      set: (_t, prop, value) => { this.optionSet(String(prop), value); return true; },
+    }), { proxy: true });
+
+    // vim.go (global options), vim.bo/vim.wo (buffer/window local options + indexed access)
+    const indexedOpt = (kind: 'buf' | 'win') => {
+      const stored: Record<number, Record<string, any>> = {};
+      return decorateProxy(new Proxy({}, {
+        get: (_t, prop) => {
+          if (typeof prop === 'symbol') return undefined;
+          const key = String(prop);
+          if (/^\d+$/.test(key)) {
+            const n = Number(key);
+            return decorateProxy(new Proxy({}, {
+              get: (_t2, p2) => {
+                if (typeof p2 === 'symbol') return undefined;
+                if (p2 === 'get') return (name: string) => stored[n]?.[String(name)];
+                if (p2 === 'set') return (name: string, v: any) => {
+                  stored[n] = stored[n] || {}; stored[n][String(name)] = v; return v;
+                };
+                return stored[n]?.[String(p2)] ?? this.optionGet(String(p2));
+              },
+              set: (_t2, p2, v) => { stored[n] = stored[n] || {}; stored[n][String(p2)] = v; return true; },
+            }), { proxy: true });
+          }
+          return stored[1]?.[key] ?? this.optionGet(key);
+        },
+        set: (_t, prop, value) => { const key = String(prop); if (!/^\d+$/.test(key)) this.optionSet(key, value); return true; },
+      }), { proxy: true });
+    };
+    const bo = indexedOpt('buf');
+    const wo = indexedOpt('win');
+    const go = decorateProxy(new Proxy({}, {
       get: (_t, prop) => { if (typeof prop === 'symbol') return undefined; return this.optionGet(String(prop)); },
       set: (_t, prop, value) => { this.optionSet(String(prop), value); return true; },
     }), { proxy: true });
@@ -152,21 +213,43 @@ export class VimShim {
       v: vVar,
       env,
       o,
-      bo: o,
-      wo: o,
+      bo,
+      wo,
+      go,
       opt,
       opt_local: opt,
       opt_global: opt,
+      log: {
+        levels: { TRACE: 0, DEBUG: 1, INFO: 2, WARN: 3, ERROR: 4, OFF: 5 },
+      },
+      uv: this.buildUV(),
+      loop: this.buildUV(),
       empty_dict: () => Object.assign(Object.create(null), { __netvimEmptyDict: true }),
       inspect: (value: any) => this.inspect(value),
       keycode: (lhs: any) => this.translateKeycodes(String(lhs ?? '')),
       schedule: (cb: any) => this.backend.schedule(() => {
         if (typeof cb === 'function') { try { cb(); } catch (err) { console.error('[vim.schedule]', err); } }
       }),
+      schedule_wrap: (cb: any) => (...args: any[]) => {
+        vim.schedule(() => {
+          if (typeof cb === 'function') { try { cb(...args); } catch (err) { console.error('[vim.schedule_wrap]', err); } }
+        });
+      },
       defer_fn: (cb: any, ms: number) => this.backend.defer(() => {
         if (typeof cb === 'function') { try { cb(); } catch (err) { console.error('[vim.defer_fn]', err); } }
       }, ms ?? 0),
       wait: (ms: number, cond?: any, cb?: any, _opts?: any) => this.wait(ms, cond, cb),
+      notify: (msg: any, level: any, _opts?: any) => {
+        const text = typeof msg === 'string' ? msg : String(msg ?? '');
+        console.log(`[vim.notify] ${text}`);
+        return text;
+      },
+      notify_once: (msg: any, level: any, opts?: any) => {
+        const key = typeof msg === 'string' ? msg : String(msg ?? '');
+        if (notifyOnceSeen.has(key)) return;
+        notifyOnceSeen.add(key);
+        return vim.notify(msg, level, opts);
+      },
       cmd: this.makeVimCmd(),
       api: this.buildNvimAPI(),
       keymap: this.buildKeymap(),
@@ -174,11 +257,68 @@ export class VimShim {
       fs: this.buildFS(),
       verify_cmd: (cmd: any) => cmd,
       iter: (value: any) => this.makeIter(value),
+      split: (s: any, sep: any, opts?: any) => {
+        const str = String(s ?? '');
+        const plain = !!(opts && opts.plain);
+        const parts = plain ? str.split(String(sep)) : str.split(new RegExp(String(sep)));
+        if (opts && opts.trimempty) {
+          while (parts.length && parts[0] === '') parts.shift();
+          while (parts.length && parts[parts.length - 1] === '') parts.pop();
+        }
+        return parts;
+      },
+      startswith: (s: any, prefix: any) => String(s ?? '').startsWith(String(prefix ?? '')),
+      endswith: (s: any, suffix: any) => String(s ?? '').endsWith(String(suffix ?? '')),
+      trim: (s: any) => String(s ?? '').trim(),
+      tbl_isempty: (t: any) => {
+        if (!t) return true;
+        if (Array.isArray(t)) return t.length === 0;
+        return Object.keys(t).length === 0;
+      },
+      tbl_get: (t: any, ...path: any[]) => {
+        let cur = t;
+        for (const p of path) {
+          if (cur === null || cur === undefined) return undefined;
+          cur = cur[typeof p === 'number' ? p : String(p)];
+        }
+        return cur;
+      },
+      tbl_filter: (fn: any, t: any) => {
+        const src = t ?? {};
+        if (Array.isArray(src)) {
+          return src.filter((v, i) => fn(v, i + 1));
+        }
+        const out: Record<string, any> = {};
+        for (const [k, v] of Object.entries(src)) {
+          if (fn(v, /^\d+$/.test(k) ? Number(k) : k)) out[k] = v;
+        }
+        return out;
+      },
+      tbl_map: (fn: any, t: any) => {
+        const src = t ?? {};
+        if (Array.isArray(src)) {
+          return src.map((v, i) => fn(v, i + 1));
+        }
+        const out: Record<string, any> = {};
+        for (const [k, v] of Object.entries(src)) {
+          out[k] = fn(v, /^\d+$/.test(k) ? Number(k) : k);
+        }
+        return out;
+      },
       tbl_deep_extend: (behavior: string, ...tables: any[]) => this.tblDeepExtend(behavior, tables),
       tbl_extend: (behavior: string, ...tables: any[]) => this.tblExtend(behavior, tables),
+      tbl_count: (t: any) => (t ? (Array.isArray(t) ? t.length : Object.keys(t).length) : 0),
       tbl_contains: (list: any, value: any) => toArr(list).includes(value),
-      tbl_keys: (obj: any) => obj ? Object.keys(obj) : [],
-      tbl_values: (obj: any) => obj ? Object.values(obj) : [],
+      tbl_keys: (obj: any) => {
+        if (!obj) return [];
+        if (Array.isArray(obj)) return obj.map((_, i) => i + 1);
+        return Object.keys(obj).map((k) => (/^\d+$/.test(k) ? Number(k) : k));
+      },
+      tbl_values: (obj: any) => {
+        if (!obj) return [];
+        if (Array.isArray(obj)) return [...obj];
+        return Object.values(obj);
+      },
       tbl_flatten: (list: any) => {
         const out: any[] = [];
         toArr(list).forEach((item) => {
@@ -191,6 +331,58 @@ export class VimShim {
       deepcopy: (value: any) => this.deepcopy(value),
     };
     return vim;
+  }
+
+  private buildUV(): any {
+    const backend = this.backend;
+    let timerSeq = 0;
+    const timers = new Map<number, { timeout: any; repeat: boolean; active: boolean; cb: () => void }>();
+    const timerProxy = (id: number) => decorateProxy(new Proxy({}, {
+      get: (_t, prop) => {
+        if (typeof prop === 'symbol') return undefined;
+        switch (String(prop)) {
+          case 'start': return (delay: number, repeat: number, cb: any) => {
+            const t = timers.get(id);
+            if (!t) return;
+            if (t.timeout) clearInterval(t.timeout);
+            t.cb = () => { try { if (typeof cb === 'function') cb(); } catch (err) { console.error('[uv.timer]', err); } };
+            t.active = true;
+            if (repeat && repeat > 0) t.timeout = setInterval(t.cb, repeat);
+            else t.timeout = setTimeout(() => { t.active = false; t.cb(); }, Math.max(0, delay));
+          };
+          case 'stop': return () => {
+            const t = timers.get(id);
+            if (t && t.timeout) { clearInterval(t.timeout); t.timeout = null; t.active = false; }
+          };
+          case 'is_active': return () => { const t = timers.get(id); return !!(t && t.active); };
+          case 'close': return () => {
+            const t = timers.get(id);
+            if (t) { if (t.timeout) clearInterval(t.timeout); timers.delete(id); }
+          };
+          default: return undefined;
+        }
+      },
+      set: () => true,
+    }), { proxy: true });
+    return decorateProxy(new Proxy({}, {
+      get: (_t, prop) => {
+        if (typeof prop === 'symbol') return undefined;
+        switch (String(prop)) {
+          case 'new_timer': return () => {
+            timerSeq++;
+            const id = timerSeq;
+            timers.set(id, { timeout: null, repeat: false, active: true, cb: () => {} });
+            return timerProxy(id);
+          };
+          case 'hrtime': return () => {
+            if (typeof performance !== 'undefined' && performance.now) return performance.now() * 1e6;
+            return Date.now() * 1e6;
+          };
+          default: return undefined;
+        }
+      },
+      set: () => true,
+    }), { proxy: true });
   }
 
   private deepcopy(value: any): any {
@@ -210,7 +402,7 @@ export class VimShim {
     const shim = this;
     const entries = (v: any): any[] => {
       if (v === null || v === undefined) return [];
-      if (Array.isArray(v)) return v.map((item, i) => [i, item]);
+      if (Array.isArray(v)) return v.map((item, i) => [i + 1, item]);
       return Object.entries(v);
     };
     const fromEntries = (rows: any[]): any => {
@@ -385,10 +577,11 @@ export class VimShim {
   translateKeycodes(lhs: string): string {
     let out = '';
     let rest = lhs;
+    const leader = this.backend.getLeader() || ' ';
     const specials: Record<string, string> = {
-      cr: 'Enter', enter: 'Enter', return: 'Enter', tab: 'Tab',
-      esc: 'Escape', bs: 'Backspace', backspace: 'Backspace', space: ' ',
-      up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
+      cr: '<CR>', enter: '<CR>', return: '<CR>', tab: '<Tab>',
+      esc: '<Esc>', bs: '<BS>', backspace: '<BS>', space: ' ',
+      up: '<Up>', down: '<Down>', left: '<Left>', right: '<Right>',
     };
     while (rest.length) {
       const m = /^<([^>]*)>/.exec(rest);
@@ -397,14 +590,16 @@ export class VimShim {
         rest = rest.slice(1);
         continue;
       }
-      const inner = m[1].toLowerCase();
+      const inner = m[1];
+      const innerLower = inner.toLowerCase();
       let mapped: string | null = null;
-      if (inner === 'leader') mapped = 'leader';
-      else if (inner.startsWith('c-s-')) mapped = 'Ctrl-' + inner.slice(4).toUpperCase();
-      else if (inner.startsWith('c-')) mapped = 'Ctrl-' + inner.slice(2).toUpperCase().toLowerCase();
-      else if (inner.startsWith('a-')) mapped = 'Alt-' + inner.slice(2);
-      else if (inner.startsWith('s-')) mapped = inner.slice(2).toUpperCase();
-      else mapped = specials[inner] ?? null;
+      if (innerLower === 'leader' || innerLower === 'localleader') mapped = leader;
+      else if (innerLower === 'lt') mapped = '<';
+      else if (inner.startsWith('C-S-') || innerLower.startsWith('c-s-')) mapped = '<C-S-' + inner.slice(4).toUpperCase() + '>';
+      else if (innerLower.startsWith('c-')) mapped = '<C-' + inner.slice(2).toUpperCase() + '>';
+      else if (innerLower.startsWith('a-')) mapped = '<A-' + inner.slice(2).toUpperCase() + '>';
+      else if (innerLower.startsWith('s-')) mapped = inner.slice(2).toUpperCase();
+      else mapped = specials[innerLower] ?? null;
       out += mapped ?? m[0];
       rest = rest.slice(m[0].length);
     }
@@ -527,7 +722,7 @@ export class VimShim {
     api.nvim_win_get_buf = () => 1;
     api.nvim_tabpage_get_number = () => 1;
     api.nvim_tabpage_get_win = () => 1;
-    api.nvim_get_mode = () => ({ mode: this.backend.getMode().toLowerCase(), blocking: false });
+    api.nvim_get_mode = () => ({ mode: vimModeToLetter(this.backend.getMode()), blocking: false });
     api.nvim_set_current_dir = () => {};
 
     // ---- Options / variables -------------------------------------------
@@ -681,7 +876,160 @@ export class VimShim {
     // ---- Termcodes -------------------------------------------------------
     api.nvim_replace_termcodes = (s: string, _a?: any, _b?: any, _c?: any) => this.translateKeycodes(String(s ?? ''));
     api.nvim_list_uis = () => [{ rgb: true, ext_multigrid: false, ext_popupmenu: false, ext_linegrid: true }];
-    api.get_keymaps = () => [];
+    api.nvim_get_mode = () => ({ mode: vimModeToLetter(this.backend.getMode()), blocking: false });
+
+    // ---- Keymap introspection -------------------------------------------
+    api.nvim_get_keymap = (mode: string) => {
+      const m = String(mode);
+      const entries = this.backend.getKeymaps ? this.backend.getKeymaps(m) : [];
+      return entries.map((e) => {
+        const skip = (e.raw ?? e.lhs).includes('<C-') || (e.raw ?? e.lhs).includes('<A-') || (e.raw ?? e.lhs).includes('<M-');
+        return {
+          mode: m,
+          lhs: skip ? (e.raw ?? e.lhs) : e.raw ?? e.lhs,
+          callback: e.callback,
+          desc: e.desc ?? '',
+          noremap: e.noremap ? 1 : 0,
+          nowait: e.nowait ? 1 : 0,
+          silent: e.silent ? 1 : 0,
+          buffer: e.buffer ?? 0,
+        };
+      });
+    };
+    api.nvim_buf_get_keymap = (_buf: number, mode: string) => api.nvim_get_keymap(mode);
+    api.get_keymaps = api.nvim_get_keymap;
+
+    // ---- Floating windows / buffers --------------------------------------
+    api.nvim_create_buf = (listed: boolean, _scratch: boolean) => {
+      const createBuf = (this.backend as any);
+      if (typeof createBuf.nvimCreateBuf === 'function') return createBuf.nvimCreateBuf(!!listed);
+      return Math.floor(Math.random() * 1e9);
+    };
+    api.nvim_open_win = (buf: number, enter: boolean, config?: any) => {
+      const back = (this.backend as any);
+      if (typeof back.nvimOpenWin === 'function') return back.nvimOpenWin(buf, !!enter, config || {});
+      return -1;
+    };
+    api.nvim_win_set_config = (win: number, config?: any) => {
+      const back = (this.backend as any);
+      if (typeof back.nvimWinSetConfig === 'function') back.nvimWinSetConfig(win, config || {});
+    };
+    api.nvim_win_get_config = (win: number) => {
+      const back = (this.backend as any);
+      if (typeof back.nvimWinGetConfig === 'function') return back.nvimWinGetConfig(win);
+      return {};
+    };
+    api.nvim_win_close = (win: number, force: boolean) => {
+      const back = (this.backend as any);
+      if (typeof back.nvimWinClose === 'function') back.nvimWinClose(win, !!force);
+    };
+    api.nvim_buf_delete = (buf: number, _opts?: any) => {
+      const back = (this.backend as any);
+      if (typeof back.nvimBufDelete === 'function') back.nvimBufDelete(buf);
+    };
+    api.nvim_win_is_valid = (win: number) => {
+      const back = (this.backend as any);
+      if (typeof back.nvimWinIsValid === 'function') return !!back.nvimWinIsValid(win);
+      return true;
+    };
+    api.nvim_win_get_buf = (win: number) => {
+      const back = (this.backend as any);
+      if (typeof back.nvimWinGetBuf === 'function') return back.nvimWinGetBuf(win);
+      return 1;
+    };
+    api.nvim_buf_is_valid = (buf: number) => {
+      const back = (this.backend as any);
+      if (typeof back.nvimBufIsValid === 'function') return !!back.nvimBufIsValid(buf);
+      return true;
+    };
+    api.nvim_win_get_height = (win: number) => {
+      const back = (this.backend as any);
+      if (typeof back.nvimWinGetHeight === 'function') return back.nvimWinGetHeight(win);
+      return (this.backend.getViewport().height || 24) - 2;
+    };
+    api.nvim_buf_line_count = (buf: number) => {
+      const back = (this.backend as any);
+      if (typeof back.nvimBufLineCount === 'function') return back.nvimBufLineCount(buf);
+      return this.backend.getBuffer().length;
+    };
+    api.nvim_buf_set_lines = (buf: number, start: number, end: number, strict: boolean, lines?: string[] | null) => {
+      const back = (this.backend as any);
+      if (back.nvimBufIsFloat && back.nvimBufIsFloat(buf)) {
+        if (typeof back.nvimBufSetLines === 'function') back.nvimBufSetLines(buf, lines || []);
+        return;
+      }
+      const cur = [...this.backend.getBuffer()];
+      const s = Math.max(0, start);
+      const e = end === -1 ? cur.length : Math.max(s, end);
+      const replacement = lines && lines.length > 0 && lines[lines.length - 1] === ''
+        ? lines.slice(0, -1)
+        : (lines ?? []);
+      cur.splice(s, e - s, ...replacement);
+      this.backend.setBuffer(cur);
+    };
+    api.nvim_buf_set_extmark = (_b: number, ns: number, line: number, col: number, opts?: any) => {
+      const o = opts ? (Array.isArray(opts) ? opts[0] || {} : opts) : {};
+      const back = (this.backend as any);
+      if (back.nvimBufIsFloat && back.nvimBufIsFloat(_b)) {
+        if (typeof back.nvimSetFloatExtmark === 'function') back.nvimSetFloatExtmark(_b, line, col, o);
+        return 0;
+      }
+      const key = `${ns}`;
+      if (!state.extmarks.has(key)) state.extmarks.set(key, []);
+      state.extmarks.get(key)!.push({ ns, line, col, opts: o || {} });
+      return (state.extmarks.get(key)!.length) - 1;
+    };
+    api.nvim_set_option_value = (name: string, value: any, opts?: any) => {
+      if (opts && (opts.scope === 'local') && typeof opts.win === 'number') {
+        const back = (this.backend as any);
+        if (typeof back.nvimWinSetOption === 'function') back.nvimWinSetOption(opts.win, name, value);
+        return;
+      }
+      this.optionSet(name, value);
+    };
+    api.nvim_win_set_option = (win: number, name: string, value: any) => {
+      const back = (this.backend as any);
+      if (typeof back.nvimWinSetOption === 'function') back.nvimWinSetOption(win, name, value);
+    };
+    api.nvim_buf_set_option = (buf: number, name: string, value: any) => {
+      const back = (this.backend as any);
+      if (typeof back.nvimBufSetOption === 'function') back.nvimBufSetOption(buf, name, value);
+    };
+    api.nvim_win_call = (win: number, cb: any) => {
+      if (typeof cb === 'function') { try { return cb(); } catch (err) { console.error('[nvim_win_call]', err); } }
+      return undefined;
+    };
+    api.nvim_buf_call = (_buf: number, cb: any) => {
+      if (typeof cb === 'function') { try { return cb(); } catch (err) { console.error('[nvim_buf_call]', err); } }
+      return undefined;
+    };
+    api.nvim_win_set_cursor = (_win: number, _pos?: any[]) => { /* single-window world */ };
+    api.nvim_tabpage_list_wins = (_tp: number) => [1];
+    api.nvim_list_wins = () => [1];
+
+    // ---- Redraw / highlights ---------------------------------------------
+    api.nvim__redraw = () => { /* engine repaints on every onUpdate */ };
+    api.nvim_get_hl = (_ns: number, opts?: any) => {
+      const name = opts && opts.name ? String(opts.name) : '';
+      const p = name.toLowerCase();
+      if (p.includes('title')) return { fg: '#c678dd', default: false };
+      if (p.includes('border')) return { fg: '#61afef', default: false };
+      if (p.includes('group')) return { fg: '#c678dd', default: false };
+      if (p.includes('separator')) return { fg: '#5c6370', default: false };
+      if (p.includes('desc')) return { fg: '#c0c5ce', default: false };
+      return { fg: '#61afef', default: false };
+    };
+    api.nvim_set_hl = (_ns: number, _name: string, _opts?: any) => {};
+
+    // ---- Input -----------------------------------------------------------
+    api.nvim_feedkeys = (keys: string, _mode?: string, _escape?: boolean) => {
+      const back = (this.backend as any);
+      if (typeof back.feedKeys === 'function') back.feedKeys(String(keys ?? ''));
+    };
+    api.nvim_input = (keys: string) => {
+      const back = (this.backend as any);
+      if (typeof back.feedKeys === 'function') back.feedKeys(String(keys ?? ''));
+    };
 
     return api;
   }
@@ -689,14 +1037,22 @@ export class VimShim {
   private buildKeymap(): Record<string, any> {
     const shim = this;
     return {
-      set: (mode: string, lhs: string, rhs: any, _opts?: any) => {
+      set: (mode: string, lhs: string, rhs: any, opts?: any) => {
         const m = String(mode);
         const key = shim.translateKeycodes(String(lhs));
+        const meta = {
+          raw: String(lhs),
+          desc: opts && opts.desc !== undefined ? String(opts.desc) : undefined,
+          nowait: !!(opts && opts.nowait),
+          silent: !!(opts && opts.silent),
+          noremap: !!(opts && opts.noremap),
+          buffer: opts && typeof opts.buffer === 'number' ? opts.buffer : undefined,
+        };
         if (typeof rhs === 'function') {
-          shim.backend.registerKeymap(m, key, rhs as KeymapCallback);
+          shim.backend.registerKeymap(m, key, rhs as KeymapCallback, meta);
         } else if (typeof rhs === 'string') {
           const cmd = rhs.startsWith(':') ? rhs.slice(1) : rhs.replace(/^<cmd>/, '').replace(/<CR>$/i, '');
-          shim.backend.registerKeymap(m, key, () => shim.backend.executeCommand(cmd));
+          shim.backend.registerKeymap(m, key, () => shim.backend.executeCommand(cmd), meta);
         }
       },
       del: (mode: string, lhs: string) => {
@@ -710,12 +1066,15 @@ export class VimShim {
 
   private buildFn(): any {
     const shim = this;
+    const overrides: Record<string, any> = {};
     return decorateProxy(new Proxy({}, {
       get: (_t, prop) => {
         if (typeof prop === 'symbol') return undefined;
         const name = String(prop);
+        if (name in overrides) return overrides[name];
         return (...args: any[]) => shim.fnCall(name, args);
       },
+      set: (_t, prop, value) => { if (typeof prop !== 'symbol') overrides[String(prop)] = value; return true; },
     }), { proxy: true });
   }
 
@@ -802,6 +1161,28 @@ const FUNCS_CORE: Record<string, (backend: LuaBackend, args: any[]) => any> = {
     if (what.includes('#')) return fname ?? '';
     return '';
   },
+  keytrans: (_b, args) => String(args[0] ?? ''),
+  strtrans: (_b, args) => String(args[0] ?? ''),
+  strcharpart: (_b, args) => {
+    const s = String(args[0] ?? '');
+    const start = Number(args[1]) || 0;
+    const len = args[2] !== undefined ? Number(args[2]) : s.length - start;
+    return Array.from(s).slice(start, start + len).join('');
+  },
+  spellbadword: () => ['', 0],
+  spellsuggest: () => [],
+  str2list: (_b, args) => Array.from(String(args[0] ?? '')).map((c) => c.codePointAt(0) ?? 0),
+  nr2char: (_b, args) => String.fromCodePoint(Number(args[0]) || 0),
+  strdisplaywidth: (_b, args) => Array.from(String(args[0] ?? '')).length,
+  strchars: (_b, args) => String(args[0] ?? '').length,
+  charcol: (_b, args) => (args[0] === '.' ? 0 : 0),
+  winwidth: (_b, _args) => 80,
+  winheight: (_b, _args) => 24,
+  winsaveview: () => ({ lnum: 1, topline: 1, col: 0 }),
+  winrestview: () => 0,
+  screenrow: (_b, _args) => 1,
+  screencol: (_b, _args) => 1,
+  mode: (b) => vimModeToLetter(b.getMode()),
   fnamemodify: (_b, args) => {
     let p = String(args[0] ?? '');
     const mods = String(args[1] ?? '');
@@ -866,9 +1247,37 @@ const FUNCS_EXTRA: Record<string, (backend: LuaBackend, args: any[]) => any> = {
   },
   synIDtrans: (_b, args) => args[0] ?? 0,
   setreg: () => 0,
+  getreg: (_b, args) => args && args[0] instanceof Array ? undefined : (typeof args[0] === 'string' ? '' : ''),
   getregtype: () => 'v',
-  mode: (b) => b.getMode().toLowerCase(),
-  strchars: (_b, args) => String(args[0] ?? '').length,
+  getreginfo: () => ({ regcontents: [], regtype: 'v', isunnamed: 0, points_to: 0 }),
+  getmarklist: (_b, args) => Array.isArray(args[0]) ? [] : [],
+  reg_recording: () => '',
+  reg_executing: () => '',
+  maparg: (b, args) => {
+    const [lhs, mode] = args;
+    const key = String(lhs ?? '');
+    const m = String(mode ?? 'n');
+    const asDict = !!(args[3]);
+    const kms = b.getKeymaps ? b.getKeymaps(m) : [];
+    // maparg receives normalized lhs; compare against raw and engine-notation lhs
+    const entry = kms.find((e) => {
+      const rawNotation = e.raw ? replaceSpec(e.raw) : null;
+      return e.lhs === key || (rawNotation !== null && e.lhs === rawNotation);
+    });
+    if (!entry) return asDict ? {} : '';
+    return {
+      mode: m,
+      lhs: entry.raw ?? entry.lhs,
+      rhs: '',
+      silent: entry.silent ? 1 : 0,
+      noremap: entry.noremap ? 1 : 0,
+      nowait: entry.nowait ? 1 : 0,
+      buffer: entry.buffer ?? 0,
+      desc: entry.desc ?? '',
+    };
+  },
+  getcharstr: (_b, _args) => { console.warn('[vim.fn.getcharstr] overridden by runtime (coroutine-aware) override'); return ''; },
+  getchar: (_b, _args) => { console.warn('[vim.fn.getchar] overridden by runtime (coroutine-aware) override'); return ''; },
   len: (_b, args) => (Array.isArray(args[0]) ? args[0].length : typeof args[0] === 'string' ? args[0].length : 0),
   max: (_b, args) => Math.max(...(Array.isArray(args[0]) ? args[0] : args.map(Number))),
   min: (_b, args) => Math.min(...(Array.isArray(args[0]) ? args[0] : args.map(Number))),
@@ -888,6 +1297,11 @@ const FUNCS_EXTRA: Record<string, (backend: LuaBackend, args: any[]) => any> = {
   },
   system: () => '',
 };
+
+// maparg helper: normalize a raw spec lhs before comparing with engine notation.
+function replaceSpec(raw: string): string {
+  return raw.replace(/<manager>/g, '<leader>');
+}
 
 export function createVimShim(backend: LuaBackend, moduleLoader: LuaModuleLoader): VimShim {
   return new VimShim(backend, moduleLoader);

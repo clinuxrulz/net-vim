@@ -19,6 +19,10 @@ function minimalBackend(): LuaBackend {
     schedule: () => {},
     defer: () => {},
     showMessage: () => {},
+    getLeader: () => ' ',
+    getKeymaps: () => [],
+    getViewport: () => ({ width: 80, height: 24 }),
+    feedKeys: () => {},
     fs: null,
   };
 }
@@ -26,12 +30,12 @@ function minimalBackend(): LuaBackend {
 describe('VimShim pure logic (no wasm)', () => {
   it('translates keycodes like neovim vim.keycode()', () => {
     const shim = createVimShim(minimalBackend(), () => null);
-    expect(shim.translateKeycodes('<leader>e')).toBe('leadere');
-    expect(shim.translateKeycodes('<C-w>')).toBe('Ctrl-w');
-    expect(shim.translateKeycodes('<CR>')).toBe('Enter');
-    expect(shim.translateKeycodes('<Esc>')).toBe('Escape');
+    expect(shim.translateKeycodes('<leader>e')).toBe(' e');
+    expect(shim.translateKeycodes('<C-w>')).toBe('<C-W>');
+    expect(shim.translateKeycodes('<CR>')).toBe('<CR>');
+    expect(shim.translateKeycodes('<Esc>')).toBe('<Esc>');
     expect(shim.translateKeycodes('gd')).toBe('gd');
-    expect(shim.translateKeycodes('<leader>ff')).toBe('leaderff');
+    expect(shim.translateKeycodes('<leader>ff')).toBe(' ff');
   });
 
   it('inspects nested tables and strings', () => {

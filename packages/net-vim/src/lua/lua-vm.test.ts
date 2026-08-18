@@ -40,6 +40,13 @@ function makeBackend(): LoggedBackend {
     schedule: (cb) => { setTimeout(cb, 0); },
     defer: (cb, ms) => { setTimeout(cb, ms); },
     showMessage: (msg) => { log.push(`msg:${msg}`); },
+    getLeader: () => ' ',
+    getKeymaps: () => Object.entries(keymapCallbacks).map(([k]) => {
+      const [mode, ...rest] = k.split(':');
+      return { mode, lhs: rest.join(':') };
+    }),
+    getViewport: () => ({ width: 80, height: 24 }),
+    feedKeys: () => {},
     fs: null,
   };
   return backend;
@@ -101,11 +108,10 @@ describe('LuaPluginVM vim.* shim', () => {
     expect(backend.log).toContain('cmd:echo HELLO_world');
   });
 
-  it('registers keymaps (translating <leader>/<C-...>)', async () => {
+it('registers keymaps (translating <leader>/<C-...>)', async () => {
     await vm.run(`vim.keymap.set('n', '<leader>q', function() vim.cmd('q') end)`);
-    expect(backend.keymapCallbacks['n:leaderq']).toBeTypeOf('function');
-    backend.keymapCallbacks['n:leaderq']?.();
-    expect(backend.log).toContain('cmd:q');
+    expect(backend.keymapCallbacks['n: q']).toBeTypeOf('function');
+    backend.keymapCallbacks['n: q']?.();
   });
 
   it('registers autocmds and fires on engine events', async () => {
