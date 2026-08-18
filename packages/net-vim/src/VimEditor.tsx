@@ -11,6 +11,37 @@ import { VirtualKeyboard } from '@net-vim/virtual-keyboard';
 import init, { Engine } from './wasm/tui_engine';
 
 export const CONFIG_PATH = '.config/net-vim/init.ts';
+export const CONFIG_LUA_PATH = '.config/net-vim/init.lua';
+
+export const DEFAULT_LUA_INIT = `
+-- Net-Vim Lua configuration (runs after init.ts).
+-- Enables tree-sitter syntax highlighting and a small set of Lua plugins.
+
+-- Enable tree-sitter highlighting automatically for supported file types.
+local function enable_ts()
+  pcall(vim.treesitter.start, 0)
+end
+vim.api.nvim_create_autocmd({ 'BufReadPost' }, { callback = enable_ts })
+
+-- Manual toggle available via :ts or :lua vim.treesitter.start()/stop()
+
+-- Test command: does :LuaHello
+vim.api.nvim_create_user_command('LuaHello', function()
+  local fname = vim.fn.expand('%')
+  vim.api.nvim_notify('Lua plugin runtime is alive. Editing: ' .. tostring(fname), 0, {})
+end, {})
+
+-- Test command: does :TsTest -> reports whether tree-sitter is highlighting
+vim.api.nvim_create_user_command('TsTest', function()
+  local ok = pcall(vim.treesitter.start, 0)
+  vim.api.nvim_notify('treesitter highlight: ' .. tostring(ok), 0, {})
+end, {})
+
+-- Sample leader keymap: <space>l runs :LuaHello
+vim.keymap.set('n', '<leader>l', function()
+  vim.api.nvim_command('LuaHello')
+end, {})
+`;
 
 export const DEFAULT_INIT = `
 export default {
@@ -244,6 +275,7 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
       }
       
       // Register CRT toggle command
+      const runtime = vimInstance!;
       vimInstance.getAPI().registerCommand('crt', () => {
         setCrtEnabled(!crtEnabled());
       });
@@ -269,6 +301,44 @@ export default function VimEditor(props: { engine?: VimEngine, ref?: (engine: Vi
       vimInstance.getAPI().registerCommand('create-init', async () => {
         await autoFS.writeFile(CONFIG_PATH, DEFAULT_INIT);
         console.log("Created default init.ts at", CONFIG_PATH);
+      });
+
+      // Command to create a starter init.lua (Lua plugins + treesitter)
+      vimInstance.getAPI().registerCommand('create-lua-init', async () => {
+        await autoFS.writeFile(CONFIG_LUA_PATH, DEFAULT_LUA_INIT);
+        console.log("Created default init.lua at", CONFIG_LUA_PATH);
+        runtime.getAPI().showMessage('Created init.lua - reload to apply');
+      });
+
+      // Evaluate a Lua snippet in the embedded Lua VM: :lua <code>
+      vimInstance.getAPI().registerCommand('lua', async (args) => {
+        const source = args.join(' ');
+        if (!source.trim()) {
+          runtime.getAPI().showMessage(':lua <code>');
+          return;
+        }
+        try {
+          const result = await runtime.evalLua(source);
+          if (result !== undefined && result !== null) {
+            console.log('[lua]', result);
+            runtime.getAPI().showMessage(String(result));
+          }
+        } catch (err) {
+          console.error('[lua]', err);
+          runtime.getAPI().showMessage(`lua error: ${String(err)}`);
+        }
+      });
+
+      // Toggle tree-sitter highlighting for the current buffer
+      vimInstance.getAPI().registerCommand('ts', async () => {
+        const active = await runtime.evalLua('return vim.treesitter.highlighter.active[1] ~= nil');
+        if (active) {
+          await runtime.evalLua('vim.treesitter.stop(1)');
+          runtime.getAPI().showMessage('treesitter highlight OFF');
+        } else {
+          const enabled = await runtime.evalLua('return pcall(vim.treesitter.start, 0)');
+          runtime.getAPI().showMessage(enabled ? 'treesitter highlight ON' : 'no grammar for this filetype');
+        }
       });
 
       setVimState(vimInstance.getState());

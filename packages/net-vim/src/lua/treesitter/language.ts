@@ -1,11 +1,21 @@
+import luaWasmUrl from './grammars/tree-sitter-lua.wasm?url';
 import { getTreeSitterModule } from './runtime';
 import { setParserModule } from './parser';
 
 export const DEFAULT_CDN_BASE =
   'https://unpkg.com/@vscode/tree-sitter-wasm@0.3.1/wasm';
 
+/**
+ * Grammars compiled for the web-tree-sitter ABI and bundled directly into the
+ * package (imported via `?url`, inlined by Vite when possible).
+ */
+const BUNDLED_GRAMMARS: Record<string, string> = {
+  lua: luaWasmUrl,
+};
+
 // Filetype / extension -> canonical tree-sitter language name.
 const EXT_TO_LANG: Record<string, string> = {
+  lua: 'lua',
   js: 'javascript',
   mjs: 'javascript',
   cjs: 'javascript',
@@ -40,6 +50,7 @@ const EXT_TO_LANG: Record<string, string> = {
 
 // Common aliases (vim filetypes -> canonical language).
 const LANG_ALIASES: Record<string, string> = {
+  lua: 'lua',
   js: 'javascript',
   javascriptreact: 'javascript',
   typescript: 'typescript',
@@ -65,6 +76,7 @@ const LANG_ALIASES: Record<string, string> = {
 
 // Canonical language -> wasm file stem in @vscode/tree-sitter-wasm.
 const GRAMMAR_FILE: Record<string, string> = {
+  lua: 'tree-sitter-lua',
   bash: 'tree-sitter-bash',
   c_sharp: 'tree-sitter-c-sharp',
   cpp: 'tree-sitter-cpp',
@@ -144,14 +156,20 @@ export class LanguageLoader {
   }
 
   /**
-   * Resolve grammar bytes: user-supplied override first, then CDN.
-   * Also accepts a raw path/URL string for dict/ini-style keys that don't exist
-   * in the @vscode set (returns null -> caller warns).
+   * Resolve grammar bytes: user-supplied override first, then bundled grammar,
+   * then CDN. Also accepts a raw path/URL string for dict/ini-style keys that
+   * don't exist in the @vscode set (returns null -> caller warns).
    */
   private async loadBytes(lang: string): Promise<Uint8Array | null> {
     if (this.opts.readGrammarBytes) {
       const fromUser = await this.opts.readGrammarBytes(lang);
       if (fromUser) return fromUser;
+    }
+    const bundled = BUNDLED_GRAMMARS[lang];
+    if (bundled) {
+      const bytes = await urlToBytes(bundled);
+      if (!bytes) throw new Error(`Bundled tree-sitter grammar for '${lang}' could not be loaded`);
+      return bytes;
     }
     const file = GRAMMAR_FILE[lang];
     if (!file) return null;
@@ -165,6 +183,7 @@ export class LanguageLoader {
 
 /** Languages preloaded eagerly so `get_parser()` works synchronously. */
 export const DEFAULT_PRELOAD_LANGS = [
+  'lua',
   'javascript',
   'typescript',
   'tsx',
@@ -175,8 +194,7 @@ export const DEFAULT_PRELOAD_LANGS = [
   'cpp',
 ];
 
-export function normalizeLang(lang: string): string | null {
-  const l = String(lang ?? '').toLowerCase();
+export function normalizeLang(lang: string): string | null {  const l = String(lang ?? '').toLowerCase();
   if (!l) return null;
   return LANG_ALIASES[l] ?? l;
 }
@@ -204,4 +222,41 @@ export function hasGrammar(lang: string): boolean {
 
 export function availableLanguages(): string[] {
   return Object.keys(GRAMMAR_FILE);
+}
+
+/**
+ * Fetch the bytes behind a Vite `?url` import. Handles:
+ *  - `data:` URLs (Vite inlines small wasm as base64 data URLs)
+ *  - `/@fs/<abs-path>` (Vitest / SSR node transforms)
+ *  - any other URL via fetch()
+ */
+export async function urlToBytes(url: string): Promise<Uint8Array | null> {
+  try {
+    const isNode = typeof process !== 'undefined' && !!process.versions?.node;
+    if (url.startsWith('data:')) {
+      const res = await fetch(url);
+      return new Uint8Array(await res.arrayBuffer());
+    }
+    if (isNode) {
+      const { readFileSync } = await import('node:fs');
+      const path = await import('node:path');
+      let relative = url;
+      if (url.startsWith('/@fs/')) relative = url.slice('/@fs/'.length);
+      else if (url.startsWith('/')) relative = url.slice(1);
+      const roots = [process.cwd(), process.env.INIT_CWD, process.env.PWD].filter(Boolean);
+      for (const r of roots) {
+        if (!r) continue;
+        try {
+          return new Uint8Array(readFileSync(path.join(String(r), relative)));
+        } catch { /* try next root */ }
+      }
+      return null;
+    }
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return new Uint8Array(await res.arrayBuffer());
+  } catch (err) {
+    console.error(`[tree-sitter] failed to load bundled grammar bytes:`, err);
+    return null;
+  }
 }

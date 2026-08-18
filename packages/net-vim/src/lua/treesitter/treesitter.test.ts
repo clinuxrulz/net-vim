@@ -190,4 +190,36 @@ describe('vim.treesitter (real web-tree-sitter)', () => {
     `);
     expect(out).toBe('true|false');
   });
+
+  it('bundled Lua grammar works out of the box', async () => {
+    await vm.treesitter.loader.get('lua'); // resolves via the bundled wasm, not CDN
+    const out = await vm.run(`
+      local p = vim.treesitter.get_string_parser('local x = 1\\n-- a comment\\nfunction greet()\\n  return 42\\nend', 'lua')
+      local ok = p ~= nil
+      local root = p:root()
+      local rootType = root:type()
+      local first = root:named_child(0)
+      local firstType = first:type()
+      -- official highlights query: local keyword + comment + function name
+      local q = vim.treesitter.query.get_query('lua', 'highlights')
+      local kw = nil
+      local commentSeen = false
+      for id, node in q:iter_captures(root, 1) do
+        local name = q.captures[id]
+        if name and (name:find('^keyword', 1) or name:find('^label', 1)) and kw == nil then kw = node:text() end
+        if name == 'comment' then commentSeen = true end
+      end
+      return tostring(ok) .. '|' .. rootType .. '|' .. firstType .. '|' .. tostring(kw) .. '|' .. tostring(commentSeen)
+    `);
+    expect(out).toBe('true|chunk|variable_declaration|local|true');
+  });
+
+  it('lua is detected from file extension', async () => {
+    const out = await vm.run(`
+      local lang = vim.treesitter.language.get_lang('/path/to/mod.lua')
+      local ext = vim.treesitter.language.get_extension('lua')
+      return lang .. '|' .. ext
+    `);
+    expect(out).toBe('lua|lua');
+  });
 });

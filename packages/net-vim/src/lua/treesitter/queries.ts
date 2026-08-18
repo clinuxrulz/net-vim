@@ -1,8 +1,13 @@
 // Minimal default highlight queries for the grammars shipped via
 // @vscode/tree-sitter-wasm. Capture names follow Neovim's conventions so the
 // shared color scheme applies. Users can supply their own full queries later.
+//
+// The Lua highlight query is the official one from the tree-sitter-lua grammar;
+// vendored from @tree-sitter-grammars/tree-sitter-lua (MIT).
+import luaHighlightsScm from './queries/lua-highlights.scm?raw';
 
 const DEFAULT_QUERIES: Record<string, string> = {
+  lua: luaHighlightsScm,
   javascript: `
 (comment) @comment
 (string) @string

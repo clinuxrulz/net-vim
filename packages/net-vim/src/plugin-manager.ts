@@ -87,6 +87,19 @@ export class PluginManager {
     }
   }
 
+  /**
+   * Evaluates a Lua snippet in the shared Lua VM (used by `:lua ...`).
+   */
+  async evalLua(source: string) {
+    try {
+      const vm = await this.getLuaVM();
+      return await vm.run(source);
+    } catch (err) {
+      console.error(`[PluginManager] Lua eval error:`, err);
+      return undefined;
+    }
+  }
+
   getLoadedLuaPlugins() {
     return Array.from(this.luaPlugins);
   }

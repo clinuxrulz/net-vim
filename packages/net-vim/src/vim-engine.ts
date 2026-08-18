@@ -226,6 +226,7 @@ export class VimEngine {
       executeCommand: (cmd) => this.executeCommand(cmd),
       loadPluginFromSource: (name, source) => this.loadPluginFromSource(name, source),
       loadLuaPluginFromSource: (name, source) => this.loadLuaPluginFromSource(name, source),
+      evalLua: (source) => this.evalLua(source),
       loadPlugin: (plugin) => this.loadPlugin(plugin),
       getLoadedPlugins: () => this.pluginManager.getLoadedPlugins(),
       getLoadedLuaPlugins: () => this.pluginManager.getLoadedLuaPlugins(),
@@ -451,6 +452,10 @@ export class VimEngine {
 
   public async loadLuaPluginFromSource(name: string, luaSource: string) {
     return this.pluginManager.loadLuaPluginFromSource(name, luaSource);
+  }
+
+  public async evalLua(source: string) {
+    return this.pluginManager.evalLua(source);
   }
 
   public async loadPlugin(plugin: any) {

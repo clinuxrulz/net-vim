@@ -45,6 +45,7 @@ function makeVimAPI(fs: FileSystem): VimAPI {
     executeCommand: () => {},
     loadPluginFromSource: async () => true,
     loadLuaPluginFromSource: async () => true,
+    evalLua: async () => undefined,
     loadPlugin: async () => true,
     getLoadedPlugins: () => [],
     getLoadedLuaPlugins: () => [],
@@ -90,5 +91,12 @@ describe('PluginManager Lua loading', () => {
       vim.g.result = helper.pick()
     `);
     expect(ok).toBe(true);
+  });
+
+  it('evaluates Lua snippets (used by :lua)', async () => {
+    const fs = makeFS();
+    const pm = new PluginManager(() => makeVimAPI(fs));
+    const result = await pm.evalLua('return 40 + 2');
+    expect(result).toBe(42);
   });
 });

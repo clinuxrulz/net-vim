@@ -138,6 +138,7 @@ export interface VimAPI {
   executeCommand: (cmd: string) => void;
   loadPluginFromSource: (name: string, source: string) => Promise<boolean>;
   loadLuaPluginFromSource: (name: string, source: string) => Promise<boolean>;
+  evalLua: (source: string) => Promise<any>;
   loadPlugin: (plugin: any) => Promise<boolean>;
   getLoadedPlugins: () => any[];
   getLoadedLuaPlugins: () => string[];

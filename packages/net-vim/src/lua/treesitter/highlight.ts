@@ -79,7 +79,7 @@ export class TreeSitterHighlighter {
     return extToLang(path ?? '');
   }
 
-  start(bufnr: number, lang?: string) {
+  start(bufnr: number | null | undefined, lang?: string) {
     const buf = normalizeBuf(bufnr);
     const resolvedLang = (lang && String(lang)) || this.getLangForBuf(buf) || '';
     if (!resolvedLang) return false;
@@ -96,12 +96,12 @@ export class TreeSitterHighlighter {
     return true;
   }
 
-  stop(bufnr: number) {
+  stop(bufnr: number | null | undefined) {
     this.active.delete(normalizeBuf(bufnr));
     if (this.ctx.rerender) this.ctx.rerender();
   }
 
-  getActive(bufnr: number): any {
+  getActive(bufnr: number | null | undefined): any {
     return this.active.get(normalizeBuf(bufnr)) ?? null;
   }
 
@@ -282,6 +282,7 @@ export class TreeSitterHighlighter {
   }
 }
 
-function normalizeBuf(bufnr: number): number {
-  return bufnr === 0 ? 1 : bufnr;
+function normalizeBuf(bufnr: number | null | undefined): number {
+  if (bufnr === null || bufnr === undefined || bufnr === 0) return 1;
+  return bufnr;
 }
